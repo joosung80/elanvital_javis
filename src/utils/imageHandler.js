@@ -65,7 +65,8 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
     
     // 컨텍스트 정보 가져오기
     let contextInfo = '';
-    if (userId) {
+    // 컨텍스트는 이미지를 새로 생성할 때만 사용하고, 이미지 수정 시에는 사용하지 않습니다.
+    if (userId && !isImageEdit) {
         const recentConversations = getRecentConversations(userId, 3);
         if (recentConversations.length > 0) {
             console.log(`[PROMPT ENHANCE] 🧠 최근 대화 ${recentConversations.length}개 활용`);
@@ -81,8 +82,8 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
             ? `You are an expert prompt engineer for an image editing AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI.
 
 **CRITICAL RULES:**
-1.  **PRESERVE THE SUBJECT:** You MUST maintain the primary subject of the original image. If the image is a cat, your prompt must be about the cat. Do NOT change the subject unless the user explicitly asks (e.g., "change the cat to a dog").
-2.  **USE THE CONVERSATION CONTEXT:** Carefully analyze the 'Recent Conversation Context' provided. The user's request might refer to things mentioned earlier. You must integrate this context into the new prompt.
+1.  **PRESERVE THE SUBJECT:** You MUST maintain the primary subject of the original image. If the user provides an image of a cat, your prompt must be about modifying the cat or its environment. Do NOT change the subject unless the user explicitly asks (e.g., "change the cat to a dog").
+2.  **FOCUS ON THE REQUEST:** Your primary goal is to translate the user's *current* request into a detailed prompt. Do not infer context from past conversations.
 3.  **OUTPUT FORMAT:** The final prompt must be in English, start with "Modify the image to...", and be a single, concise instruction.
 
 **EXAMPLE 1 (Background Change):**
@@ -90,15 +91,12 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
 - Original Image: A cat.
 - Your Output: "Modify the image to place the original cat on a beautiful ocean background, featuring clear blue water and a bright sky, while keeping the cat as the main subject."
 
-**EXAMPLE 2 (Contextual Request):**
-- Recent Conversation Context:
-    - User: "I want to create an ad for my new space-themed soda."
-    - Bot: "Great idea! We can use cosmic backgrounds and stars."
-- User Request: "add our new logo to this"
-- Original Image: A can of soda.
-- Your Output: "Modify the image to add the new company logo onto the soda can, and enhance the background with a cosmic scene full of stars and nebulae to fit the space theme."
+**EXAMPLE 2 (Style Change):**
+- User Request: "make it look like a cartoon"
+- Original Image: A realistic photo of a car.
+- Your Output: "Modify the image to transform the realistically photographed car into a cartoon style, with bold outlines, vibrant colors, and a playful aesthetic."
 
-**Now, process the following request based on the rules and context provided.**${contextInfo}`
+**Now, process the following request based on the rules provided.**`
             : `You are an expert prompt engineer for an image generation AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI to create a high-quality image.
 
 **CRITICAL RULES:**
