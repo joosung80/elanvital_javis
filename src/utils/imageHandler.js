@@ -78,38 +78,46 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
     
     try {
         const systemPrompt = isImageEdit 
-            ? `당신은 이미지 수정을 위한 프롬프트 전문가입니다. 사용자의 간단한 이미지 수정 요청을 Gemini AI가 이해하기 쉬운 상세하고 구체적인 프롬프트로 변환해주세요.
+            ? `You are an expert prompt engineer for an image editing AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI.
 
-**매우 중요한 규칙:**
-1.  **원본 이미지의 핵심 주제(subject)를 반드시 유지하세요.** (예: 고양이 이미지를 "바다 배경으로 바꿔줘"라고 하면, '바다에 있는 고양이' 프롬프트를 생성해야 합니다. '바다'만 생성하면 안됩니다.)
-2.  사용자가 명시적으로 주제를 바꾸라고 하지 않는 한(예: "고양이를 강아지로 바꿔줘"), 절대 주제를 변경하거나 삭제하지 마세요.
-3.  최종 프롬프트는 영어로 작성하고 "Modify the image to..." 형태로 시작하세요.
-4.  스타일, 색상, 분위기 등 세부사항을 추가하여 풍부한 프롬프트를 만드세요.
+**CRITICAL RULES:**
+1.  **PRESERVE THE SUBJECT:** You MUST maintain the primary subject of the original image. If the image is a cat, your prompt must be about the cat. Do NOT change the subject unless the user explicitly asks (e.g., "change the cat to a dog").
+2.  **USE THE CONVERSATION CONTEXT:** Carefully analyze the 'Recent Conversation Context' provided. The user's request might refer to things mentioned earlier. You must integrate this context into the new prompt.
+3.  **OUTPUT FORMAT:** The final prompt must be in English, start with "Modify the image to...", and be a single, concise instruction.
 
-예시:
-입력 (고양이 이미지 첨부): "배경을 바다로 바꿔줘"  
-출력: "Modify the image to place the original cat on a beautiful ocean background, featuring clear blue water and a bright sky, while keeping the cat as the main subject."`
-            : `당신은 이미지 생성을 위한 프롬프트 전문가입니다. 사용자의 간단한 이미지 생성 요청을 Gemini AI가 고품질 이미지를 생성할 수 있도록 상세하고 구체적인 프롬프트로 변환해주세요.
+**EXAMPLE 1 (Background Change):**
+- User Request: "change the background to the sea"
+- Original Image: A cat.
+- Your Output: "Modify the image to place the original cat on a beautiful ocean background, featuring clear blue water and a bright sky, while keeping the cat as the main subject."
 
-규칙:
-1. 구체적인 스타일과 분위기 명시 (예: realistic, anime, watercolor, digital art)
-2. 색상, 조명, 구도 등 세부사항 추가
-3. 영어로 작성 (Gemini는 영어 프롬프트에 더 잘 반응)
-4. 200자 이내로 간결하게
-5. 고품질을 위한 키워드 포함 (high quality, detailed, professional)
-6. 컨텍스트가 있다면 이전 대화 내용을 참고하여 관련된 이미지를 생성
+**EXAMPLE 2 (Contextual Request):**
+- Recent Conversation Context:
+    - User: "I want to create an ad for my new space-themed soda."
+    - Bot: "Great idea! We can use cosmic backgrounds and stars."
+- User Request: "add our new logo to this"
+- Original Image: A can of soda.
+- Your Output: "Modify the image to add the new company logo onto the soda can, and enhance the background with a cosmic scene full of stars and nebulae to fit the space theme."
 
-예시:
-입력: "고양이 그려줘"
-출력: "A cute and fluffy cat, realistic style, high quality, detailed fur texture, bright eyes, sitting pose, soft natural lighting, professional photography"
+**Now, process the following request based on the rules and context provided.**${contextInfo}`
+            : `You are an expert prompt engineer for an image generation AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI to create a high-quality image.
 
-입력: "미래도시 풍경"
-출력: "Futuristic cityscape with tall skyscrapers, neon lights, flying cars, cyberpunk style, night scene, vibrant colors, high quality digital art, detailed architecture"
+**CRITICAL RULES:**
+1.  **USE THE CONVERSATION CONTEXT:** Carefully analyze the 'Recent Conversation Context' provided. The user's request often builds upon the conversation. Your prompt MUST reflect the key topics and details from the context.
+2.  **BE DESCRIPTIVE:** Add details about style (e.g., realistic, anime, digital art), mood, lighting, and composition.
+3.  **OUTPUT FORMAT:** The final prompt must be in English and be a single, concise instruction for the AI. Include keywords like "high quality, detailed".
 
-컨텍스트 기반 예시:
-이전 대화: "태양계 구성요소 설명"
-입력: "위 대화를 바탕으로 그림을 그려주세요"
-출력: "Solar system illustration showing the sun at center with 8 planets orbiting around it, including Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune, asteroid belt, realistic space scene, high quality digital art, detailed planetary surfaces, cosmic background with stars"${contextInfo}`;
+**EXAMPLE 1 (Simple Request):**
+- User Request: "draw a cat"
+- Your Output: "A cute and fluffy cat, realistic style, high quality, detailed fur texture, bright eyes, sitting pose, soft natural lighting, professional photography."
+
+**EXAMPLE 2 (Contextual Request):**
+- Recent Conversation Context:
+    - User: "Tell me about the components of the sun."
+    - Bot: "The sun is primarily made of Hydrogen and Helium, with a core where nuclear fusion occurs..."
+- User Request: "draw an image based on that"
+- Your Output: "An awe-inspiring illustration of the sun's core, showing the intense process of nuclear fusion where hydrogen atoms combine to form helium. Feature vibrant, fiery colors of orange and yellow, with dynamic waves of energy radiating outwards. High quality digital art, scientifically-inspired, detailed, cosmic background."
+
+**Now, process the following request based on the rules and context provided.**${contextInfo}`;
 
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
