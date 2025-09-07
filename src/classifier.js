@@ -100,9 +100,17 @@ async function classifyUserInput(content, attachments = [], userId) {
 
 4. DOCUMENT - 문서 분석 기능
    - PDF, Word 문서 첨부 및 분석 요청
+   - Google Docs 문서 읽기 및 분석
    - 문서 내용 질문, 요약, 분석 관련
-   - 예: "이 문서 분석해줘", "PDF 내용 요약해줘", "문서에서 핵심 내용 찾아줘"
+   - 예: "이 문서 분석해줘", "패스워드 문서 열어줘", "구글 독스 매뉴얼 문서 보여줘"
    - 첨부파일: PDF (.pdf), Word 문서 (.docx, .doc)
+   
+   DOCUMENT 타입별 처리:
+   - upload (업로드): PDF, Word 파일이 첨부된 경우
+   - google_docs (구글 독스): "~문서 열어줘", "~독스 보여줘", "구글 독스 ~" 등 Google Docs 문서 읽기 요청
+   - google_docs_search (구글 독스 검색): "~문서에서 ~ 찾아줘", "~문서 안에서 ~ 검색해줘" 등 문서 내 키워드 검색 요청
+   - Google Docs 읽기 요청 시 문서 별칭을 추출합니다. 예: "패스워드 문서 열어줘" → "패스워드"
+   - Google Docs 검색 요청 시 문서 별칭과 검색 키워드를 추출합니다. 예: "패스워드 문서에서 gmail 찾아줘" → 문서: "패스워드", 키워드: "gmail"
 
 5. MEMORY - 메모리 관리 기능
    - 메모리 정리, 초기화, 삭제, 새 대화 시작 관련 요청
@@ -192,6 +200,19 @@ TASK 카테고리인 경우:
     "taskType": "add|query|complete",
     "extractedInfo": {
         "content": "할 일 추가(add)의 경우, 사용자의 요청 문장에서 '...해줘', '...부탁해'와 같은 명령어 부분을 제외한 순수한 할 일의 내용만 정확히 추출해야 합니다. 여러 할 일이 리스트 형태로 포함된 경우 전체 리스트를 보존하여 추출합니다. 완료(complete)의 경우, '삭제해줘', '지워줘', '완료해줘' 등의 명령어를 제외하고 완료하려는 할 일을 찾기 위한 키워드를 추출합니다. 조회(query)시에는 빈 문자열입니다."
+    }
+}
+
+DOCUMENT 카테고리인 경우:
+{
+    "category": "DOCUMENT",
+    "confidence": 0.95,
+    "reason": "분류 이유 설명",
+    "documentType": "upload|google_docs|google_docs_search",
+    "extractedInfo": {
+        "keyword": "Google Docs 읽기 요청 시 문서 별칭을 추출합니다. 예: '패스워드 문서 열어줘' → '패스워드'. 업로드의 경우 빈 문자열입니다.",
+        "searchKeyword": "Google Docs 검색 요청 시 검색할 키워드를 추출합니다. 예: '패스워드 문서에서 gmail 찾아줘' → 'gmail'. 검색이 아닌 경우 빈 문자열입니다.",
+        "documentAlias": "Google Docs 검색 요청 시 문서 별칭을 추출합니다. 예: '패스워드 문서에서 gmail 찾아줘' → '패스워드'. 검색이 아닌 경우 빈 문자열입니다."
     }
 }
 

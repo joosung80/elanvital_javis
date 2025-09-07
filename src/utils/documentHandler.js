@@ -12,6 +12,7 @@ const http = require('http');
 const { URL } = require('url');
 const { saveDocumentsToMemory } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
+const { readDocumentByAlias, searchAndReadDocuments, searchKeywordInDocument } = require('./docsHandler');
 
 /**
  * URL에서 파일을 다운로드하여 Buffer로 반환
@@ -504,11 +505,135 @@ async function handleDocumentRequest(message, classification, actualContent = nu
   }
 }
 
+/**
+ * Google Docs 문서 읽기 요청을 처리합니다.
+ * @param {string} keyword - 문서 별칭이나 검색 키워드
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<string>} 처리 결과 메시지
+ */
+async function handleGoogleDocsRequest(keyword, userId) {
+    try {
+        console.log(`[GOOGLE DOCS] 📄 문서 읽기 요청: ${keyword}`);
+        
+        let result;
+        
+        try {
+            // 먼저 정확한 별칭으로 시도
+            result = await readDocumentByAlias(keyword);
+        } catch (error) {
+            // 별칭이 없으면 검색으로 시도
+            console.log(`[GOOGLE DOCS] 🔍 별칭 '${keyword}' 없음, 검색으로 시도`);
+            result = await searchAndReadDocuments(keyword);
+            result = result.document; // 검색 결과에서 문서 추출
+        }
+        
+        const { title, content, wordCount, characterCount, aliasName, description } = result;
+        
+        // 메모리에 문서 저장
+        const documentData = {
+            filename: `${aliasName || title}.gdocs`,
+            content: content,
+            summary: content.length > 1000 ? content.substring(0, 1000) + '...' : content,
+            uploadTime: new Date(),
+            fileType: 'google_docs',
+            metadata: {
+                title,
+                wordCount,
+                characterCount,
+                alias: result.alias,
+                description
+            }
+        };
+        
+        saveDocumentsToMemory(userId, [documentData]);
+        
+        // 응답 메시지 생성
+        let responseMessage = `📄 **Google Docs 문서를 읽어왔습니다!**\n\n`;
+        responseMessage += `**📋 문서 정보:**\n`;
+        responseMessage += `• **제목:** ${title}\n`;
+        if (aliasName) {
+            responseMessage += `• **별칭:** ${aliasName}\n`;
+        }
+        if (description) {
+            responseMessage += `• **설명:** ${description}\n`;
+        }
+        responseMessage += `• **단어 수:** ${wordCount.toLocaleString()}개\n`;
+        responseMessage += `• **문자 수:** ${characterCount.toLocaleString()}자\n\n`;
+        
+        // 내용 미리보기 (처음 500자)
+        const preview = content.length > 500 ? content.substring(0, 500) + '...' : content;
+        responseMessage += `**📖 내용 미리보기:**\n\`\`\`\n${preview}\n\`\`\`\n\n`;
+        responseMessage += `💡 이 문서에 대해 질문하거나 요약을 요청할 수 있습니다!`;
+        
+        return responseMessage;
+        
+    } catch (error) {
+        console.error(`[GOOGLE DOCS] ❌ 문서 읽기 실패:`, error);
+        return `❌ **Google Docs 문서 읽기 실패**\n\n${error.message}\n\n💡 문서 별칭을 확인하거나 문서 공유 설정을 확인해주세요.`;
+    }
+}
+
+/**
+ * Google Docs 문서에서 키워드 검색 요청을 처리합니다.
+ * @param {string} documentAlias - 문서 별칭
+ * @param {string} searchKeyword - 검색할 키워드
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<string>} 처리 결과 메시지
+ */
+async function handleGoogleDocsSearchRequest(documentAlias, searchKeyword, userId) {
+    try {
+        console.log(`[GOOGLE DOCS SEARCH] 🔍 문서 '${documentAlias}'에서 '${searchKeyword}' 검색 요청`);
+        
+        const searchResult = await searchKeywordInDocument(documentAlias, searchKeyword);
+        
+        if (searchResult.totalMatches === 0) {
+            return `🔍 **검색 결과 없음**\n\n**문서:** ${searchResult.document.aliasName || searchResult.document.title}\n**키워드:** "${searchKeyword}"\n\n해당 키워드를 포함하는 내용을 찾을 수 없습니다.`;
+        }
+        
+        // 응답 메시지 생성
+        let responseMessage = `🔍 **Google Docs 검색 결과**\n\n`;
+        responseMessage += `**📄 문서:** ${searchResult.document.aliasName || searchResult.document.title}\n`;
+        responseMessage += `**🔎 검색어:** "${searchKeyword}"\n`;
+        responseMessage += `**📊 총 ${searchResult.totalMatches}개 결과 발견**\n\n`;
+        
+        // 각 검색 결과 표시 (최대 5개까지)
+        const maxResults = Math.min(searchResult.results.length, 5);
+        
+        for (let i = 0; i < maxResults; i++) {
+            const result = searchResult.results[i];
+            responseMessage += `**📍 결과 ${i + 1} (${result.matchLineNumber}번째 줄):**\n`;
+            responseMessage += '```\n';
+            
+            // 컨텍스트 라인들 표시
+            for (const contextLine of result.context) {
+                const prefix = contextLine.isMatch ? '→ ' : '  ';
+                const lineNum = contextLine.lineNumber.toString().padStart(3, ' ');
+                responseMessage += `${prefix}${lineNum}: ${contextLine.content}\n`;
+            }
+            
+            responseMessage += '```\n\n';
+        }
+        
+        // 결과가 5개보다 많으면 알림
+        if (searchResult.totalMatches > 5) {
+            responseMessage += `💡 총 ${searchResult.totalMatches}개 결과 중 처음 5개만 표시했습니다.\n`;
+        }
+        
+        return responseMessage;
+        
+    } catch (error) {
+        console.error(`[GOOGLE DOCS SEARCH] ❌ 검색 실패:`, error);
+        return `❌ **Google Docs 검색 실패**\n\n${error.message}\n\n💡 문서 별칭을 확인하거나 문서 공유 설정을 확인해주세요.`;
+    }
+}
+
 module.exports = {
     parseDocument,
     parseMultipleDocuments,
     formatDocumentSummary,
     createDocumentContext,
     summarizeDocument,
-    handleDocumentRequest // 새로 추가된 export
+    handleDocumentRequest,
+    handleGoogleDocsRequest,
+    handleGoogleDocsSearchRequest // 새로 추가된 export
 };

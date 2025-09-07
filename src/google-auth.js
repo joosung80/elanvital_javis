@@ -6,8 +6,10 @@ const {google} = require('googleapis');
 
 // If modifying these scopes, delete token.json.
 const SCOPES = [
-  'https://www.googleapis.com/auth/calendar', // 구글 캘린더 권한
-  'https://www.googleapis.com/auth/tasks'      // 구글 Tasks 권한
+  'https://www.googleapis.com/auth/calendar',           // 구글 캘린더 권한
+  'https://www.googleapis.com/auth/tasks',              // 구글 Tasks 권한
+  'https://www.googleapis.com/auth/documents.readonly', // 구글 Docs 읽기 전용 권한
+  'https://www.googleapis.com/auth/spreadsheets'        // 구글 Sheets 권한
 ];
 
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');

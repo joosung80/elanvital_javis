@@ -5,7 +5,7 @@ const { processNaturalSchedule, deleteScheduleEvent } = require('../utils/schedu
 const { processImageGeneration } = require('../utils/imageHandler');
 const { splitMessageForMobile } = require('../utils/messageUtils');
 const { processGeneralQuestion } = require('../utils/generalHandler');
-const { handleDocumentRequest } = require('../utils/documentHandler');
+const { handleDocumentRequest, handleGoogleDocsRequest, handleGoogleDocsSearchRequest } = require('../utils/documentHandler');
 const { addTask, addMultipleTasks, listTasks, cacheTasksForCompletion, searchAndCacheTasks, parseMultipleTasks } = require('../utils/taskHandler');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
@@ -46,7 +46,18 @@ async function handleMessageCreate(message) {
           botResponse = await handleImageRequest(message, classification, actualContent);
           break;
         case 'DOCUMENT':
-          botResponse = await handleDocumentRequest(message, classification, actualContent);
+          if (classification.documentType === 'google_docs') {
+            const keyword = classification.extractedInfo?.keyword || '';
+            botResponse = await handleGoogleDocsRequest(keyword, message.author.id);
+            await message.reply(botResponse);
+          } else if (classification.documentType === 'google_docs_search') {
+            const documentAlias = classification.extractedInfo?.documentAlias || '';
+            const searchKeyword = classification.extractedInfo?.searchKeyword || '';
+            botResponse = await handleGoogleDocsSearchRequest(documentAlias, searchKeyword, message.author.id);
+            await message.reply(botResponse);
+          } else {
+            botResponse = await handleDocumentRequest(message, classification, actualContent);
+          }
           break;
         case 'MEMORY':
           botResponse = await handleMemoryRequest(message, classification);
