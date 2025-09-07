@@ -7,8 +7,19 @@ const {
 } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
 
-// Initialize APIs
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+// Initialize APIs (lazy loading)
+let genAI = null;
+
+function getGoogleGenAI() {
+    if (!genAI) {
+        if (!process.env.GEMINI_API_KEY) {
+            throw new Error('GEMINI_API_KEY가 설정되지 않았습니다. .env 파일을 확인해주세요.');
+        }
+        genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
+        console.log('[GEMINI] ✅ Google GenAI 클라이언트 초기화 완료');
+    }
+    return genAI;
+}
 
 // Function to convert image URL to a format the API understands
 async function urlToGenerativePart(url, mimeType) {
@@ -244,6 +255,7 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
             : '🎨 **Gemini AI에 이미지 생성 요청을 보냈습니다!** 잠시만 기다려주세요...';
         await sendFeedback(apiMessage);
         
+        const genAI = getGoogleGenAI();
         const result = await genAI.models.generateContent({
             model: "gemini-2.5-flash-image-preview",
             contents,

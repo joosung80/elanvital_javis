@@ -128,7 +128,7 @@ async function handleTaskRequest(message, classification, actualContent) {
             
             // Create numbered list
             const taskList = tasks.map((task, index) => 
-                `${index + 1}. **${task.title}** (목록: ${task.tasklistTitle})`
+                `${index + 1}. **${task.title}**`
             ).join('\n');
 
             // Create buttons (max 5 buttons per row, Discord limit)
@@ -186,7 +186,7 @@ async function handleTaskRequest(message, classification, actualContent) {
 
             // Create numbered list of matched tasks with similarity scores
             const taskList = matchedTasks.map((task, index) => 
-                `${index + 1}. **${task.title}** (목록: ${task.tasklistTitle}) - 유사도: ${Math.round(task.similarity * 100)}%`
+                `${index + 1}. **${task.title}** - 유사도: ${Math.round(task.similarity * 100)}%`
             ).join('\n');
 
             // Create buttons for matched tasks
