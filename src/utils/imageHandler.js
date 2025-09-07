@@ -162,17 +162,18 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
  * @param {string} userId - 사용자 ID (컨텍스트용)
  * @returns {Object} 결과 객체 { success, embed?, files?, textResponse? }
  */
-async function handleImageRequest(message) {
-    const prompt = message.content;
+async function handleImageRequest(message, promptContent) {
+    const prompt = promptContent || message.content;
     const attachments = Array.from(message.attachments.values());
+    const imageAttachments = attachments.filter(att => att.contentType && att.contentType.startsWith('image/'));
     const userId = message.author.id;
     const memory = getUserMemory(userId);
 
-    let imageUrl = attachments.length > 0 ? attachments[0].url : memory.lastImageUrl;
-    let imageMimeType = attachments.length > 0 ? attachments[0].contentType : memory.lastImageMimeType;
+    let imageUrl = imageAttachments.length > 0 ? imageAttachments[0].url : memory.lastImageUrl;
+    let imageMimeType = imageAttachments.length > 0 ? imageAttachments[0].contentType : memory.lastImageMimeType;
 
     // 새 이미지가 업로드되면 메모리에 저장
-    if (attachments.length > 0) {
+    if (imageAttachments.length > 0) {
         saveImageContext(userId, imageUrl, imageMimeType);
     }
 

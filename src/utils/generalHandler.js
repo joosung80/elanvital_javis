@@ -68,8 +68,8 @@ async function downloadFileContent(url, contentType) {
  * @param {string} userId - 사용자 ID
  * @returns {Object} 처리 결과
  */
-async function handleGeneralRequest(message) {
-    const userInput = message.content;
+async function handleGeneralRequest(message, content) {
+    const userInput = content || message.content;
     const attachments = Array.from(message.attachments.values());
     const userId = message.author.id;
 

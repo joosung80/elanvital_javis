@@ -1503,9 +1503,9 @@ async function processNaturalSchedule(text, classification) {
  * @param {Object} classification - 분류기에서 반환된 분류 정보
  * @returns {Promise<string|Object>} 처리 결과 메시지 또는 객체
  */
-async function handleScheduleRequest(message, classification) {
+async function handleScheduleRequest(message, classification, userInput) {
     const { scheduleType, extractedInfo } = classification;
-    const userInput = message.content;
+    const textToProcess = userInput || message.content;
 
     console.log(`[SCHEDULE HANDLER] 🚀 스케줄 요청 처리 시작: 타입 '${scheduleType}'`);
 
@@ -1523,11 +1523,11 @@ async function handleScheduleRequest(message, classification) {
                     return result.message;
                 }
             case 'add':
-                result = await addScheduleEvent(userInput);
+                result = await addScheduleEvent(textToProcess);
                  await message.reply(result.message);
                 return result.message;
             case 'delete':
-                result = await deleteScheduleEvent(userInput, message.author.id);
+                result = await deleteScheduleEvent(textToProcess, message.author.id);
                 if (result.success) {
                     await message.reply({ content: result.message, components: result.components || [] });
                     return result.message;
@@ -1538,7 +1538,7 @@ async function handleScheduleRequest(message, classification) {
             default:
                 // 혹시 모를 예외 처리: scheduleType이 없으면 Gemini 파싱 시도
                 console.log(`[SCHEDULE HANDLER] ⚠️ scheduleType이 지정되지 않았습니다. 자연어 처리 시도.`);
-                result = await addScheduleEvent(userInput);
+                result = await addScheduleEvent(textToProcess);
                 await message.reply(result.message);
                 return result.message;
         }

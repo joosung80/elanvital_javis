@@ -17,9 +17,26 @@ async function handleMessageCreate(message) {
     
     let actualContent = message.content;
     
-    // 음성 메시지 처리 (필요 시)
+    // 음성 메시지 처리
     if (message.attachments.size > 0) {
-        // ... 음성 인식 로직 ...
+        const attachment = message.attachments.first();
+        if (attachment.contentType && attachment.contentType.startsWith('audio/')) {
+            try {
+                const thinkingMessage = await message.reply('🎤 음성 메시지를 텍스트로 변환 중입니다...');
+                actualContent = await transcribeAudio(attachment.url, attachment.name);
+                await thinkingMessage.edit(`> **${message.author.username}:** ${actualContent}`);
+            } catch (error) {
+                console.error('음성 변환 실패:', error);
+                await message.reply('죄송합니다, 음성 메시지를 변환하는 데 실패했습니다.');
+                return;
+            }
+        }
+    }
+
+    // 텍스트 내용이 없으면 더 이상 진행하지 않음
+    if (!actualContent) {
+        console.log('[MESSAGE] 내용이 없는 메시지이므로 처리를 중단합니다.');
+        return;
     }
 
     try {
@@ -38,17 +55,17 @@ async function handleMessageCreate(message) {
                 }
                 break;
             case 'IMAGE':
-                botResponse = await handleImageRequest(message);
+                botResponse = await handleImageRequest(message, actualContent);
                 break;
             case 'TASK':
                 botResponse = await handleTaskRequest(message, classification);
                 break;
             case 'SCHEDULE':
-                botResponse = await handleScheduleRequest(message, classification);
+                botResponse = await handleScheduleRequest(message, classification, actualContent);
                 break;
             // ... 다른 case들 ...
             default:
-                botResponse = await handleGeneralRequest(message);
+                botResponse = await handleGeneralRequest(message, actualContent);
                 break;
         }
 
