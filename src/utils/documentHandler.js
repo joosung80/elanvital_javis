@@ -10,6 +10,18 @@ const mammoth = require('mammoth');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+const OpenAI = require('openai');
+
+// OpenAI 클라이언트 초기화 (API 키가 있는 경우에만)
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+  console.log('[DOCUMENT] ✅ OpenAI 클라이언트 초기화 완료');
+} else {
+  console.log('[DOCUMENT] ⚠️ OpenAI API 키 없음 - 요약 기능 비활성화');
+}
 
 /**
  * URL에서 파일을 다운로드하여 Buffer로 반환
@@ -107,6 +119,60 @@ async function parseWord(buffer) {
  * @param {string} filename - 파일명
  * @returns {Object} 문서 컨텍스트
  */
+/**
+ * 문서 내용을 Markdown 형태로 변환
+ * @param {string} filename - 파일명
+ * @param {string} content - 문서 내용
+ * @returns {string} Markdown 형태의 문서
+ */
+function convertToMarkdown(filename, content) {
+    const timestamp = new Date().toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    
+    let markdown = `# ${filename}\n\n`;
+    markdown += `**파싱 일시:** ${timestamp}\n\n`;
+    markdown += `---\n\n`;
+    
+    // 내용을 단락별로 나누어 Markdown 형태로 변환
+    const paragraphs = content.split(/\n\s*\n/).filter(p => p.trim());
+    
+    paragraphs.forEach((paragraph, index) => {
+        const trimmedParagraph = paragraph.trim();
+        
+        // 제목처럼 보이는 짧은 줄 (50자 이하이고 다음 줄이 있는 경우)
+        if (trimmedParagraph.length <= 50 && index < paragraphs.length - 1) {
+            // 숫자로 시작하는 경우 (예: "1. 개요", "2.1 목적")
+            if (/^\d+\./.test(trimmedParagraph)) {
+                markdown += `## ${trimmedParagraph}\n\n`;
+            }
+            // 대문자나 한글로만 구성된 짧은 제목
+            else if (/^[A-Z가-힣\s\-\(\)]+$/.test(trimmedParagraph)) {
+                markdown += `### ${trimmedParagraph}\n\n`;
+            }
+            // 일반 단락
+            else {
+                markdown += `${trimmedParagraph}\n\n`;
+            }
+        }
+        // 긴 내용은 일반 단락으로 처리
+        else {
+            // 줄바꿈을 유지하면서 단락 추가
+            const formattedParagraph = trimmedParagraph.replace(/\n/g, '  \n');
+            markdown += `${formattedParagraph}\n\n`;
+        }
+    });
+    
+    markdown += `---\n\n`;
+    markdown += `*문서 파싱 완료*\n`;
+    
+    return markdown;
+}
+
 function createDocumentContext(text, filename) {
     console.log(`[DOCUMENT] 📋 문서 컨텍스트 생성: ${filename}`);
     
@@ -123,6 +189,10 @@ function createDocumentContext(text, filename) {
         console.log(`[DOCUMENT] ✂️ 텍스트 요약: ${text.length}자 → ${processedText.length}자`);
     }
     
+    // Markdown 형태로 변환 (전체 텍스트 사용)
+    const markdownContent = convertToMarkdown(filename, text);
+    console.log(`[DOCUMENT] 📝 Markdown 변환 완료: ${markdownContent.length}자`);
+    
     // 문서 메타데이터 추출
     const lines = text.split('\n').filter(line => line.trim().length > 0);
     const wordCount = text.split(/\s+/).length;
@@ -136,6 +206,7 @@ function createDocumentContext(text, filename) {
         paragraphCount: paragraphCount,
         lineCount: lines.length,
         content: processedText,
+        markdownContent: markdownContent, // 새로 추가된 Markdown 형태 내용
         summary: lines.slice(0, 3).join(' ').substring(0, 200) + '...', // 첫 3줄 요약
         extractedAt: new Date(),
         type: 'document'
@@ -258,11 +329,90 @@ async function parseMultipleDocuments(attachments) {
 }
 
 /**
+ * OpenAI를 이용한 문서 요약
+ * @param {string} text - 요약할 텍스트
+ * @param {string} filename - 파일명
+ * @param {string} summaryType - 요약 타입 ('brief', 'detailed', 'key_points')
+ * @returns {Promise<string>} 요약된 텍스트
+ */
+async function summarizeDocument(text, filename, summaryType = 'detailed') {
+    console.log(`[DOCUMENT SUMMARY] 📝 문서 요약 시작: ${filename} (${summaryType})`);
+    
+    if (!openai) {
+        console.log(`[DOCUMENT SUMMARY] ⚠️ OpenAI 클라이언트 없음 - 기본 요약 반환`);
+        const lines = text.split('\n').filter(line => line.trim().length > 0);
+        return `**기본 요약 (OpenAI 없음)**\n\n파일명: ${filename}\n단어 수: ${text.split(/\s+/).length}개\n첫 부분: ${lines.slice(0, 5).join(' ').substring(0, 300)}...`;
+    }
+    
+    try {
+        let systemPrompt = '';
+        let userPrompt = '';
+        
+        switch (summaryType) {
+            case 'brief':
+                systemPrompt = `당신은 문서 요약 전문가입니다. 주어진 문서를 간결하고 핵심적으로 요약해주세요.
+- 3-5줄 이내로 요약
+- 가장 중요한 내용만 포함
+- 명확하고 이해하기 쉽게 작성`;
+                break;
+                
+            case 'key_points':
+                systemPrompt = `당신은 문서 분석 전문가입니다. 주어진 문서의 핵심 포인트를 추출해주세요.
+- 주요 포인트를 번호로 나열 (5-10개)
+- 각 포인트는 1-2줄로 간결하게
+- 중요도 순으로 정렬`;
+                break;
+                
+            case 'detailed':
+            default:
+                systemPrompt = `당신은 문서 요약 전문가입니다. 주어진 문서를 상세하고 체계적으로 요약해주세요.
+- 문서의 주요 내용과 구조 파악
+- 중요한 정보와 세부사항 포함
+- 논리적 순서로 정리
+- 읽기 쉽고 이해하기 쉽게 작성
+- 한국어로 작성`;
+                break;
+        }
+        
+        userPrompt = `다음 문서를 요약해주세요:
+
+파일명: ${filename}
+내용:
+${text}`;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+            ],
+            temperature: 0.3,
+            max_tokens: 1500
+        });
+        
+        const summary = response.choices[0].message.content;
+        
+        console.log(`[DOCUMENT SUMMARY] ✅ 요약 완료: ${summary.length}자`);
+        return summary;
+        
+    } catch (error) {
+        console.error(`[DOCUMENT SUMMARY] ❌ 요약 실패:`, error);
+        
+        // 요약 실패시 기본 요약 생성
+        const lines = text.split('\n').filter(line => line.trim().length > 0);
+        const wordCount = text.split(/\s+/).length;
+        
+        return `**요약 생성 실패 - 기본 정보**\n\n파일명: ${filename}\n단어 수: ${wordCount}개\n문단 수: ${text.split(/\n\s*\n/).length}개\n\n**문서 시작 부분:**\n${lines.slice(0, 10).join('\n').substring(0, 500)}...`;
+    }
+}
+
+/**
  * 문서 컨텍스트를 사용자 친화적인 메시지로 변환
  * @param {Array} documentContexts - 문서 컨텍스트 배열
+ * @param {string} summaryText - 요약 텍스트 (선택사항)
  * @returns {string} 사용자 메시지
  */
-function formatDocumentSummary(documentContexts) {
+function formatDocumentSummary(documentContexts, summaryText = null) {
     if (!documentContexts || documentContexts.length === 0) {
         return '';
     }
@@ -270,27 +420,35 @@ function formatDocumentSummary(documentContexts) {
     const successfulDocs = documentContexts.filter(doc => doc.type === 'document');
     const failedDocs = documentContexts.filter(doc => doc.type === 'document_error');
     
-    let message = `📄 **문서 분석 결과**\n\n`;
+    let message = '';
     
-    if (successfulDocs.length > 0) {
-        message += `✅ **성공적으로 분석된 문서 (${successfulDocs.length}개):**\n`;
-        successfulDocs.forEach((doc, index) => {
-            message += `${index + 1}. **${doc.filename}**\n`;
-            message += `   - 📊 ${doc.wordCount.toLocaleString()}단어, ${doc.paragraphCount}문단, ${doc.lineCount}줄\n`;
-            message += `   - 📝 요약: ${doc.summary}\n\n`;
-        });
-    }
-    
-    if (failedDocs.length > 0) {
-        message += `❌ **분석 실패한 문서 (${failedDocs.length}개):**\n`;
-        failedDocs.forEach((doc, index) => {
-            message += `${index + 1}. **${doc.filename}**: ${doc.error}\n`;
-        });
-        message += `\n`;
-    }
-    
-    if (successfulDocs.length > 0) {
-        message += `💬 **이제 문서 내용에 대해 질문하거나 요청하실 수 있습니다!**`;
+    // AI 요약이 있으면 메인 콘텐츠로 표시
+    if (summaryText) {
+        message += `📄 **${successfulDocs[0]?.filename || '문서'}**\n\n`;
+        message += `${summaryText}\n\n`;
+        message += `💬 **문서에 대해 더 궁금한 점이 있으시면 언제든 물어보세요!**`;
+    } else {
+        // AI 요약이 없으면 기본 분석 결과 표시
+        message += `📄 **문서 분석 완료**\n\n`;
+        
+        if (successfulDocs.length > 0) {
+            successfulDocs.forEach((doc, index) => {
+                message += `✅ **${doc.filename}**\n`;
+                message += `📊 ${doc.wordCount.toLocaleString()}단어, ${doc.paragraphCount}문단\n\n`;
+            });
+        }
+        
+        if (failedDocs.length > 0) {
+            message += `❌ **분석 실패:**\n`;
+            failedDocs.forEach((doc, index) => {
+                message += `• ${doc.filename}: ${doc.error}\n`;
+            });
+            message += `\n`;
+        }
+        
+        if (successfulDocs.length > 0) {
+            message += `💬 **문서 내용에 대해 질문해주세요!**`;
+        }
     }
     
     return message;
@@ -300,5 +458,6 @@ module.exports = {
     parseDocument,
     parseMultipleDocuments,
     formatDocumentSummary,
-    createDocumentContext
+    createDocumentContext,
+    summarizeDocument
 };

@@ -1,10 +1,17 @@
 const OpenAI = require('openai');
 const fetch = require('node-fetch');
+const { getRecentDocuments, getCurrentContext } = require('./memoryHandler');
 
-// OpenAI 클라이언트 초기화
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+// OpenAI 클라이언트 초기화 (API 키가 있는 경우에만)
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+  console.log('[GENERAL] ✅ OpenAI 클라이언트 초기화 완료');
+} else {
+  console.log('[GENERAL] ⚠️ OpenAI API 키 없음 - 일반 질문 기능 제한');
+}
 
 /**
  * 모바일 친화적인 메시지 분할 함수
@@ -78,7 +85,18 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
     console.log(`[GENERAL DEBUG] 💬 질문: "${userInput}"`);
     console.log(`[GENERAL DEBUG] 📎 첨부파일 수: ${attachments.length}`);
     
+    if (!openai) {
+        console.log(`[GENERAL DEBUG] ⚠️ OpenAI 클라이언트 없음 - 기본 응답 반환`);
+        return `죄송합니다. 현재 OpenAI API 키가 설정되지 않아 일반 질문에 답변할 수 없습니다.\n\n다음 기능들은 여전히 사용 가능합니다:\n- 일정 관리 (/myschedule)\n- 이미지 생성 (/image)\n- 문서 분석 (PDF/Word 업로드)\n- 메모리 관리`;
+    }
+    
     try {
+        // 문서 컨텍스트 가져오기
+        const recentDocuments = getRecentDocuments(userId, 3);
+        const currentContext = getCurrentContext(userId);
+        
+        console.log(`[GENERAL DEBUG] 📄 최근 문서 ${recentDocuments.length}개 로드됨`);
+        
         // 텍스트 파일 필터링
         const textFiles = attachments.filter(att => 
             att.contentType && (
@@ -93,6 +111,8 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
         let systemPrompt = `당신은 도움이 되고 친근한 한국어 AI 어시스턴트입니다.
 사용자의 질문에 정확하고 유용한 답변을 제공해주세요.
 
+문서 컨텍스트가 있는 경우, 해당 문서의 내용을 바탕으로 답변해주세요.
+
 답변 가이드라인:
 - 한국어로 자연스럽게 답변해주세요
 - 정확하고 도움이 되는 정보를 제공해주세요
@@ -103,6 +123,31 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
 
         // 사용자 메시지 구성
         let userMessage = userInput;
+        
+        // 문서 컨텍스트 추가
+        if (recentDocuments.length > 0) {
+            userMessage += '\n\n**참고할 수 있는 최근 문서들:**\n';
+            recentDocuments.forEach((doc, index) => {
+                userMessage += `\n${index + 1}. **${doc.filename}** (${doc.wordCount}단어)\n`;
+                userMessage += `   요약: ${doc.summary}\n`;
+                
+                // 문서 내용이 질문과 관련있어 보이면 일부 내용 포함
+                const questionLower = userInput.toLowerCase();
+                const contentLower = doc.content.toLowerCase();
+                
+                // 간단한 키워드 매칭으로 관련성 확인
+                const keywords = questionLower.split(' ').filter(word => word.length > 2);
+                const isRelevant = keywords.some(keyword => contentLower.includes(keyword));
+                
+                if (isRelevant) {
+                    const maxContentLength = 1000;
+                    const truncatedContent = doc.content.length > maxContentLength 
+                        ? doc.content.substring(0, maxContentLength) + '\n... (내용이 더 있습니다)'
+                        : doc.content;
+                    userMessage += `   내용 일부:\n\`\`\`\n${truncatedContent}\n\`\`\`\n`;
+                }
+            });
+        }
         
         // 텍스트 파일이 있는 경우 내용 추가
         if (textFiles.length > 0) {

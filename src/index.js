@@ -13,7 +13,8 @@ const {
 } = require('./utils/memoryHandler');
 const { 
   parseMultipleDocuments, 
-  formatDocumentSummary 
+  formatDocumentSummary,
+  summarizeDocument 
 } = require('./utils/documentHandler');
 const FormData = require('form-data');
 const https = require('https');
@@ -263,6 +264,9 @@ client.on('messageCreate', async message => {
     let botResponse = '';
     
     switch (classification.category) {
+      case 'HELP':
+        botResponse = await handleHelpRequest(message, classification);
+        break;
       case 'SCHEDULE':
         botResponse = await handleScheduleRequest(message, classification, messageContent);
         break;
@@ -517,6 +521,70 @@ async function handleImageRequest(message, classification, actualContent = null)
   }
 }
 
+// 도움말 요청 처리
+async function handleHelpRequest(message, classification) {
+  console.log(`[HELP DEBUG] 🆘 도움말 요청 처리 시작`);
+  console.log(`[HELP DEBUG] 👤 사용자: ${message.author.tag}`);
+  console.log(`[HELP DEBUG] 💬 메시지: "${message.content}"`);
+  console.log(`[HELP DEBUG] 🎲 분류 신뢰도: ${classification.confidence}`);
+  
+  try {
+    const helpMessage = `🤖 **Elanvital Agent 기능 안내**
+
+저는 다음과 같은 기능들을 제공합니다:
+
+📅 **일정 관리 (Schedule)**
+• 일정 추가: "내일 오후 3시에 팀 회의 추가해줘"
+• 일정 조회: "오늘 일정 알려줘", "다음주 스케줄"
+• 일정 삭제: "오늘 회의 취소해줘"
+• 인터랙티브 UI로 수정/삭제 가능
+
+🎨 **이미지 생성 (Image)**
+• 이미지 생성: "고양이 그림 그려줘"
+• 이미지 수정: 이미지 업로드 후 "이걸 수정해줘"
+• 인포그래픽 생성: "태양계 인포그래픽 만들어줘"
+• ChatGPT 프롬프트 보강으로 고품질 이미지 생성
+
+📄 **문서 분석 (Document)**
+• PDF/Word 문서 분석: 파일 업로드 후 자동 분석
+• 문서 요약: "문서 요약해줘"
+• 문서 질문: "이 문서에서 핵심 내용은?"
+• Markdown 형태로 구조화 저장
+
+🧠 **메모리 관리 (Memory)**
+• 대화 기록 저장 및 활용
+• 이미지 기억 후 재활용
+• 문서 내용 기억
+• 메모리 정리: "메모리 정리해줘", "새 대화"
+
+💬 **일반 질문 (General)**
+• 모든 종류의 질문 답변
+• 최근 문서 내용 활용한 답변
+• 자연스러운 대화
+
+🎤 **음성 인식 (Voice)**
+• 모바일 음성 메시지 자동 변환
+• OpenAI Whisper 기반 STT
+
+✨ **특별 기능**
+• 자연어 처리로 직관적 사용
+• 메모리 기반 컨텍스트 유지
+• 인터랙티브 UI (버튼, 모달)
+• 모바일 친화적 메시지 분할
+
+궁금한 점이 있으시면 언제든 말씀해주세요! 😊`;
+
+    await message.reply(helpMessage);
+    console.log(`[HELP DEBUG] ✅ 도움말 메시지 전송 완료`);
+    return `도움말 제공 완료`;
+    
+  } catch (error) {
+    console.error(`[HELP DEBUG] ❌ 도움말 처리 오류:`, error);
+    await message.reply('도움말을 제공하는 중 오류가 발생했습니다.');
+    return `도움말 처리 오류: ${error.message}`;
+  }
+}
+
 // 메모리 관리 요청 처리
 async function handleMemoryRequest(message, classification) {
   console.log(`[MEMORY DEBUG] 🧠 메모리 관리 요청 처리 시작`);
@@ -535,12 +603,13 @@ async function handleMemoryRequest(message, classification) {
       const successMessage = `🧠 **메모리 정리 완료!**\n\n` +
         `✅ **정리된 내용:**\n` +
         `📸 저장된 이미지: ${result.clearedData.images}개\n` +
+        `📄 저장된 문서: ${result.clearedData.documents}개\n` +
         `💬 대화 기록: ${result.clearedData.conversations}개\n\n` +
         `🆕 **새로운 시작:** 모든 메모리가 초기화되었습니다.`;
       
       await message.reply(successMessage);
       console.log(`[MEMORY DEBUG] ✅ 메모리 정리 성공 메시지 전송`);
-      return `메모리 정리 완료: 이미지 ${result.clearedData.images}개, 대화 ${result.clearedData.conversations}개 삭제`;
+      return `메모리 정리 완료: 이미지 ${result.clearedData.images}개, 문서 ${result.clearedData.documents}개, 대화 ${result.clearedData.conversations}개 삭제`;
     } else {
       await message.reply(`🤔 **메모리 정리 결과**\n\n${result.message}`);
       console.log(`[MEMORY DEBUG] ⚠️ 메모리 정리 실패: ${result.message}`);
@@ -585,14 +654,72 @@ async function handleDocumentRequest(message, classification, actualContent = nu
     // 문서 파싱 실행
     const documentContexts = await parseMultipleDocuments(documentAttachments);
     
-    // 결과 메시지 생성
-    const summaryMessage = formatDocumentSummary(documentContexts);
+    // 요약 요청 감지 (명확한 요약 키워드만)
+    const contentToProcess = actualContent || message.content;
+    const explicitSummaryKeywords = [
+      '요약', '요약해줘', '요약해주세요', '정리', '정리해줘', '정리해주세요',
+      'summary', 'summarize', '핵심', '핵심만', '간단히', '간략히',
+      '주요 내용', '중요한 내용', '포인트'
+    ];
+    
+    // 문서 기반 질문 키워드 (문서 내용을 바탕으로 한 구체적 질문)
+    const documentQuestionKeywords = [
+      '문서 요약', '내용 요약', '문서 내용', '이 문서', '이 파일',
+      '문서에서', '파일에서', '내용에서', '문서 정리', '파일 정리'
+    ];
+    
+    const hasExplicitSummary = explicitSummaryKeywords.some(keyword => 
+      contentToProcess.toLowerCase().includes(keyword.toLowerCase())
+    );
+    
+    const hasDocumentQuestion = documentQuestionKeywords.some(keyword => 
+      contentToProcess.toLowerCase().includes(keyword.toLowerCase())
+    );
+    
+    // 단순 텍스트만 있는 경우 (명시적 요약 요청 없이 문서만 업로드)
+    const isSimpleUpload = contentToProcess.trim().length === 0 || 
+                          contentToProcess.trim() === '문서 요약해줘';
+    
+    const requestsSummary = hasExplicitSummary || hasDocumentQuestion || isSimpleUpload;
+    
+    let aiSummary = null;
+    
+    // 성공적으로 파싱된 문서가 있고 요약이 필요한 경우 AI 요약 실행
+    const successfulDocs = documentContexts.filter(doc => doc.type === 'document');
+    if (requestsSummary && successfulDocs.length > 0) {
+      console.log(`[DOCUMENT] 🤖 요약 요청 감지 - AI 요약 실행`);
+      
+      // 요약 진행 상황 업데이트
+      await processingMessage.edit(`📄 **문서 분석 중...**\n\n${documentAttachments.map(att => `📎 ${att.name}`).join('\n')}\n\n🤖 **AI 요약 생성 중...** ⏳`);
+      
+      try {
+        // 첫 번째 성공한 문서에 대해 요약 실행
+        const firstDoc = successfulDocs[0];
+        
+        // 요약 타입 결정
+        let summaryType = 'detailed';
+        if (contentToProcess.includes('간단') || contentToProcess.includes('간략') || contentToProcess.includes('brief')) {
+          summaryType = 'brief';
+        } else if (contentToProcess.includes('핵심') || contentToProcess.includes('포인트') || contentToProcess.includes('key')) {
+          summaryType = 'key_points';
+        }
+        
+        aiSummary = await summarizeDocument(firstDoc.content, firstDoc.filename, summaryType);
+        console.log(`[DOCUMENT] ✅ AI 요약 완료: ${aiSummary.length}자`);
+        
+      } catch (error) {
+        console.error(`[DOCUMENT] ❌ AI 요약 실패:`, error);
+        aiSummary = `**AI 요약 생성 실패**\n\n${error.message}\n\n기본 문서 정보를 확인해주세요.`;
+      }
+    }
+    
+    // 결과 메시지 생성 (AI 요약 포함)
+    const summaryMessage = formatDocumentSummary(documentContexts, aiSummary);
     
     // 처리 완료 메시지 업데이트
     await processingMessage.edit(summaryMessage);
     
     // 성공적으로 파싱된 문서가 있으면 메모리에 저장
-    const successfulDocs = documentContexts.filter(doc => doc.type === 'document');
     if (successfulDocs.length > 0) {
       saveDocumentsToMemory(message.author.id, documentContexts);
       console.log(`[DOCUMENT] 💾 ${successfulDocs.length}개 문서가 메모리에 저장됨`);

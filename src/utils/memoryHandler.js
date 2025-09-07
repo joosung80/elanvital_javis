@@ -172,20 +172,33 @@ function saveDocumentsToMemory(userId, documentContexts) {
         return;
     }
     
-    // 새 문서들을 메모리에 추가
+    // 새 문서들을 메모리에 추가 (중복 확인)
+    let addedCount = 0;
     successfulDocs.forEach(doc => {
-        const documentData = {
-            filename: doc.filename,
-            content: doc.content,
-            summary: doc.summary,
-            wordCount: doc.wordCount,
-            paragraphCount: doc.paragraphCount,
-            lineCount: doc.lineCount,
-            extractedAt: doc.extractedAt,
-            type: doc.type
-        };
+        // 같은 파일명과 단어 수를 가진 문서가 이미 있는지 확인
+        const existingDoc = memory.documents.find(existing => 
+            existing.filename === doc.filename && 
+            existing.wordCount === doc.wordCount
+        );
         
-        memory.documents.unshift(documentData); // 최신 문서를 앞에 추가
+        if (!existingDoc) {
+            const documentData = {
+                filename: doc.filename,
+                content: doc.content,
+                markdownContent: doc.markdownContent, // Markdown 형태 내용 추가
+                summary: doc.summary,
+                wordCount: doc.wordCount,
+                paragraphCount: doc.paragraphCount,
+                lineCount: doc.lineCount,
+                extractedAt: doc.extractedAt,
+                type: doc.type
+            };
+            
+            memory.documents.unshift(documentData); // 최신 문서를 앞에 추가
+            addedCount++;
+        } else {
+            console.log(`[MEMORY] 🔄 중복 문서 감지, 저장 생략: ${doc.filename}`);
+        }
     });
     
     // 최대 10개 문서만 유지
@@ -200,7 +213,9 @@ function saveDocumentsToMemory(userId, documentContexts) {
         wordCount: doc.wordCount
     }));
     
-    console.log(`[MEMORY] 📄 문서 저장됨: ${userId} - ${successfulDocs.length}개`);
+    if (addedCount > 0) {
+        console.log(`[MEMORY] 📄 새 문서 저장됨: ${userId} - ${addedCount}개`);
+    }
     console.log(`[MEMORY] 📊 총 저장된 문서 수: ${memory.documents.length}`);
 }
 
@@ -522,6 +537,7 @@ function clearUserMemory(userId) {
             message: '정리할 메모리가 없습니다.',
             clearedData: {
                 images: 0,
+                documents: 0,
                 conversations: 0
             }
         };
@@ -529,6 +545,7 @@ function clearUserMemory(userId) {
     
     const clearedData = {
         images: memory.images.length,
+        documents: memory.documents.length,
         conversations: memory.conversations.length
     };
     
@@ -536,11 +553,11 @@ function clearUserMemory(userId) {
     userMemories.delete(userId);
     
     console.log(`[MEMORY] 🗑️ 사용자 메모리 완전 정리: ${userId}`);
-    console.log(`[MEMORY] 📊 정리된 데이터: 이미지 ${clearedData.images}개, 대화 ${clearedData.conversations}개`);
+    console.log(`[MEMORY] 📊 정리된 데이터: 이미지 ${clearedData.images}개, 문서 ${clearedData.documents}개, 대화 ${clearedData.conversations}개`);
     
     return {
         success: true,
-        message: `메모리가 성공적으로 정리되었습니다. (이미지 ${clearedData.images}개, 대화 ${clearedData.conversations}개 삭제)`,
+        message: `메모리가 성공적으로 정리되었습니다. (이미지 ${clearedData.images}개, 문서 ${clearedData.documents}개, 대화 ${clearedData.conversations}개 삭제)`,
         clearedData
     };
 }
@@ -574,6 +591,7 @@ module.exports = {
     saveDocumentsToMemory,
     getRecentDocuments,
     searchDocuments,
+    getDocumentMarkdown, // 새로 추가된 함수
     saveConversationToMemory,
     getRecentConversations,
     getCurrentContext,
@@ -583,3 +601,25 @@ module.exports = {
     getMemoryStats,
     clearUserMemory
 };
+
+/**
+ * 문서의 Markdown 내용 가져오기
+ * @param {string} userId - 사용자 ID
+ * @param {string} filename - 파일명
+ * @returns {string|null} Markdown 내용 또는 null
+ */
+function getDocumentMarkdown(userId, filename) {
+    const memory = getUserMemory(userId);
+    
+    const document = memory.documents.find(doc => 
+        doc.filename === filename || doc.filename.includes(filename)
+    );
+    
+    if (document && document.markdownContent) {
+        console.log(`[MEMORY] 📝 Markdown 내용 반환: ${filename}`);
+        return document.markdownContent;
+    }
+    
+    console.log(`[MEMORY] ❌ Markdown 내용 없음: ${filename}`);
+    return null;
+}
