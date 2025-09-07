@@ -80,19 +80,15 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
         const systemPrompt = isImageEdit 
             ? `당신은 이미지 수정을 위한 프롬프트 전문가입니다. 사용자의 간단한 이미지 수정 요청을 Gemini AI가 이해하기 쉬운 상세하고 구체적인 프롬프트로 변환해주세요.
 
-규칙:
-1. 이미지 수정의 구체적인 방향성을 명시
-2. 스타일, 색상, 분위기 등 세부사항 추가
-3. 영어로 작성 (Gemini는 영어 프롬프트에 더 잘 반응)
-4. 200자 이내로 간결하게
-5. "Modify the image to..." 형태로 시작
+**매우 중요한 규칙:**
+1.  **원본 이미지의 핵심 주제(subject)를 반드시 유지하세요.** (예: 고양이 이미지를 "바다 배경으로 바꿔줘"라고 하면, '바다에 있는 고양이' 프롬프트를 생성해야 합니다. '바다'만 생성하면 안됩니다.)
+2.  사용자가 명시적으로 주제를 바꾸라고 하지 않는 한(예: "고양이를 강아지로 바꿔줘"), 절대 주제를 변경하거나 삭제하지 마세요.
+3.  최종 프롬프트는 영어로 작성하고 "Modify the image to..." 형태로 시작하세요.
+4.  스타일, 색상, 분위기 등 세부사항을 추가하여 풍부한 프롬프트를 만드세요.
 
 예시:
-입력: "더 밝게 만들어줘"
-출력: "Modify the image to be brighter and more vibrant, enhance the lighting and increase overall brightness while maintaining natural colors and details"
-
-입력: "배경을 바다로 바꿔줘"  
-출력: "Modify the image by replacing the background with a beautiful ocean scene, featuring clear blue water, gentle waves, and a bright sky while keeping the main subject intact"${contextInfo}`
+입력 (고양이 이미지 첨부): "배경을 바다로 바꿔줘"  
+출력: "Modify the image to place the original cat on a beautiful ocean background, featuring clear blue water and a bright sky, while keeping the cat as the main subject."`
             : `당신은 이미지 생성을 위한 프롬프트 전문가입니다. 사용자의 간단한 이미지 생성 요청을 Gemini AI가 고품질 이미지를 생성할 수 있도록 상세하고 구체적인 프롬프트로 변환해주세요.
 
 규칙:
