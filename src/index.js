@@ -7,8 +7,14 @@ const {
   saveConversationToMemory, 
   checkForImageMemory,
   getCurrentContext,
-  getMemoryStats 
+  getMemoryStats,
+  clearUserMemory,
+  saveDocumentsToMemory
 } = require('./utils/memoryHandler');
+const { 
+  parseMultipleDocuments, 
+  formatDocumentSummary 
+} = require('./utils/documentHandler');
 const FormData = require('form-data');
 const https = require('https');
 const axios = require('axios');
@@ -263,24 +269,34 @@ client.on('messageCreate', async message => {
       case 'IMAGE':
         botResponse = await handleImageRequest(message, classification, messageContent);
         break;
+      case 'DOCUMENT':
+        botResponse = await handleDocumentRequest(message, classification, messageContent);
+        break;
+      case 'MEMORY':
+        botResponse = await handleMemoryRequest(message, classification);
+        break;
       case 'GENERAL':
       default:
         botResponse = await handleGeneralRequest(message, classification);
         break;
     }
     
-    // 대화 내용을 메모리에 저장
-    saveConversationToMemory(
-      message.author.id,
-      messageContent || message.content,
-      botResponse || '응답 완료',
-      classification.category,
-      {
-        confidence: classification.confidence,
-        timestamp: new Date(),
-        hasAttachments: message.attachments.size > 0
-      }
-    );
+    // 메모리 정리 요청이 아닌 경우에만 대화 내용을 메모리에 저장
+    if (classification.category !== 'MEMORY') {
+      await saveConversationToMemory(
+        message.author.id,
+        messageContent || message.content,
+        botResponse || '응답 완료',
+        classification.category,
+        {
+          confidence: classification.confidence,
+          timestamp: new Date(),
+          hasAttachments: message.attachments.size > 0
+        }
+      );
+    } else {
+      console.log(`[MEMORY DEBUG] 🚫 메모리 정리 요청이므로 대화 저장 생략`);
+    }
 
   } catch (error) {
     console.error('Error in message processing:', error);
@@ -498,6 +514,97 @@ async function handleImageRequest(message, classification, actualContent = null)
     console.error(`[IMAGE DEBUG] 💥 스택 트레이스:`, error.stack);
     await message.reply('이미지 처리 중 오류가 발생했습니다. `/image` 명령어를 사용해보세요.');
     return `이미지 처리 오류: ${error.message}`;
+  }
+}
+
+// 메모리 관리 요청 처리
+async function handleMemoryRequest(message, classification) {
+  console.log(`[MEMORY DEBUG] 🧠 메모리 관리 요청 처리 시작`);
+  console.log(`[MEMORY DEBUG] 👤 사용자: ${message.author.tag}`);
+  console.log(`[MEMORY DEBUG] 💬 메시지: "${message.content}"`);
+  console.log(`[MEMORY DEBUG] 🎲 분류 신뢰도: ${classification.confidence}`);
+  
+  try {
+    // 사용자 메모리 정리 실행
+    const result = clearUserMemory(message.author.id);
+    
+    console.log(`[MEMORY DEBUG] 📤 메모리 정리 결과: ${result.success ? '성공' : '실패'}`);
+    console.log(`[MEMORY DEBUG] 📊 정리된 데이터:`, result.clearedData);
+    
+    if (result.success) {
+      const successMessage = `🧠 **메모리 정리 완료!**\n\n` +
+        `✅ **정리된 내용:**\n` +
+        `📸 저장된 이미지: ${result.clearedData.images}개\n` +
+        `💬 대화 기록: ${result.clearedData.conversations}개\n\n` +
+        `🆕 **새로운 시작:** 모든 메모리가 초기화되었습니다.`;
+      
+      await message.reply(successMessage);
+      console.log(`[MEMORY DEBUG] ✅ 메모리 정리 성공 메시지 전송`);
+      return `메모리 정리 완료: 이미지 ${result.clearedData.images}개, 대화 ${result.clearedData.conversations}개 삭제`;
+    } else {
+      await message.reply(`🤔 **메모리 정리 결과**\n\n${result.message}`);
+      console.log(`[MEMORY DEBUG] ⚠️ 메모리 정리 실패: ${result.message}`);
+      return `메모리 정리 실패: ${result.message}`;
+    }
+    
+  } catch (error) {
+    console.error(`[MEMORY DEBUG] ❌ 메모리 관리 오류:`, error);
+    console.error(`[MEMORY DEBUG] ❌ 오류 스택:`, error.stack);
+    await message.reply('메모리 정리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    return `메모리 처리 오류: ${error.message}`;
+  }
+}
+
+// 문서 처리 요청
+async function handleDocumentRequest(message, classification, actualContent = null) {
+  console.log(`[DOCUMENT REQUEST] 📄 문서 처리 요청: ${classification.reason}`);
+  
+  try {
+    // 첨부된 문서 파일 확인
+    const attachments = Array.from(message.attachments.values());
+    const documentAttachments = attachments.filter(att => {
+      const supportedTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword'
+      ];
+      const fileExtension = att.name.toLowerCase().split('.').pop();
+      return supportedTypes.includes(att.contentType) || 
+             ['pdf', 'docx', 'doc'].includes(fileExtension);
+    });
+    
+    if (documentAttachments.length === 0) {
+      const response = `📄 **문서를 찾을 수 없습니다**\n\n지원되는 문서 형식:\n- PDF (.pdf)\n- Word 문서 (.docx, .doc)\n\n문서를 첨부하고 다시 시도해주세요.`;
+      await message.reply(response);
+      return response;
+    }
+    
+    // 문서 파싱 시작 알림
+    const processingMessage = await message.reply(`📄 **문서 분석 중...**\n\n${documentAttachments.map(att => `📎 ${att.name}`).join('\n')}\n\n⏳ 잠시만 기다려주세요...`);
+    
+    // 문서 파싱 실행
+    const documentContexts = await parseMultipleDocuments(documentAttachments);
+    
+    // 결과 메시지 생성
+    const summaryMessage = formatDocumentSummary(documentContexts);
+    
+    // 처리 완료 메시지 업데이트
+    await processingMessage.edit(summaryMessage);
+    
+    // 성공적으로 파싱된 문서가 있으면 메모리에 저장
+    const successfulDocs = documentContexts.filter(doc => doc.type === 'document');
+    if (successfulDocs.length > 0) {
+      saveDocumentsToMemory(message.author.id, documentContexts);
+      console.log(`[DOCUMENT] 💾 ${successfulDocs.length}개 문서가 메모리에 저장됨`);
+    }
+    
+    return summaryMessage;
+    
+  } catch (error) {
+    console.error('[DOCUMENT REQUEST] ❌ 문서 처리 오류:', error);
+    const errorResponse = `❌ **문서 처리 중 오류가 발생했습니다**\n\n${error.message}\n\n다시 시도해주세요.`;
+    await message.reply(errorResponse);
+    return errorResponse;
   }
 }
 

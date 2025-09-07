@@ -78,7 +78,7 @@ async function classifyUserInput(content, attachments = [], userId) {
 현재 월: ${now.getMonth() + 1}월
 현재 년도: ${now.getFullYear()}년
 
-다음 사용자 입력을 분석하여 정확히 3가지 카테고리 중 하나로 분류해주세요:
+다음 사용자 입력을 분석하여 정확히 5가지 카테고리 중 하나로 분류해주세요:
 
 1. SCHEDULE - 스케줄 관리 기능
    - 일정 추가, 조회, 삭제 관련
@@ -98,8 +98,22 @@ async function classifyUserInput(content, attachments = [], userId) {
    - "그려줘", "만들어줘", "이미지", "그림", "create", "generate" 등 포함
    - 예: "고양이 그림 그려줘", "create a picture", "이미지 만들어줘"
 
-3. GENERAL - 일반 프롬프트 (기본 카테고리)
-   - 위 두 카테고리에 해당하지 않는 모든 것
+3. DOCUMENT - 문서 분석 기능
+   - PDF, Word 문서 첨부 및 분석 요청
+   - 문서 내용 질문, 요약, 분석 관련
+   - 예: "이 문서 분석해줘", "PDF 내용 요약해줘", "문서에서 핵심 내용 찾아줘"
+   - 첨부파일: PDF (.pdf), Word 문서 (.docx, .doc)
+
+4. MEMORY - 메모리 관리 기능
+   - 메모리 정리, 초기화, 삭제, 새 대화 시작 관련 요청
+   - 예: "메모리 정리해줘", "메모리 클리어", "기억 지워줘", "메모리 초기화", "대화 기록 삭제", 
+        "컨텍스트 정리해줘", "기억된 내용 정리해줘", "메모리 삭제해줘", "컨텍스트 삭제해줘",
+        "기억 삭제해줘", "대화 내용 지워줘", "메모리 리셋", "컨텍스트 리셋", "기억 초기화",
+        "새 대화", "새로운 대화", "새 채팅", "새로운 채팅", "new chat", "new conversation",
+        "start new", "fresh start", "처음부터", "다시 시작", "리셋해줘", "초기화해줘"
+
+5. GENERAL - 일반 프롬프트 (기본 카테고리)
+   - 위 네 카테고리에 해당하지 않는 모든 것
    - 일반적인 질문, 대화, 정보 요청, 설명 요청 등
    - 텍스트, 문서 파일 첨부 포함
    - 예: "안녕하세요", "날씨가 어때?", "프로그래밍 질문", "설명해줘", "도움말"
@@ -108,7 +122,14 @@ async function classifyUserInput(content, attachments = [], userId) {
 메모리 컨텍스트 (분류 참고용):
 - 마지막 이미지: ${currentContext.lastImageUrl ? '있음' : '없음'}
 - 마지막 주제: ${currentContext.lastTopic || '없음'}
-- 세션 타입: ${currentContext.sessionType || '없음'}
+- 세션 타입: ${currentContext.sessionType || '없음'}${currentContext.compressedHistory ? `
+
+압축된 대화 히스토리:
+- 요약: ${currentContext.compressedHistory.summary}
+- 주요 주제: ${currentContext.compressedHistory.keyTopics.join(', ')}
+- 사용자 선호도: ${currentContext.compressedHistory.userPreferences}
+- 중요 컨텍스트: ${currentContext.compressedHistory.importantContext}
+- 압축된 대화 수: ${currentContext.compressedHistory.totalCompressedConversations}개` : ''}
 
 최근 대화 기록 (분류 참고용):
 ${recentConversations.length > 0 ? 
@@ -150,7 +171,7 @@ SCHEDULE 카테고리인 경우:
 
 다른 카테고리인 경우:
 {
-  "category": "IMAGE|GENERAL",
+  "category": "IMAGE|DOCUMENT|MEMORY|GENERAL",
   "confidence": 0.95,
   "reason": "분류 이유 설명"
 }
@@ -162,7 +183,7 @@ SCHEDULE 카테고리인 경우:
             messages: [
                 {
                     role: "system",
-                    content: "당신은 사용자 입력을 3가지 카테고리로 분류하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요."
+                    content: "당신은 사용자 입력을 5가지 카테고리로 분류하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요."
                 },
                 {
                     role: "user",

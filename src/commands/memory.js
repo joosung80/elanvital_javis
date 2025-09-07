@@ -3,7 +3,8 @@ const {
   getMemoryStats, 
   getCurrentContext, 
   getRecentConversations,
-  getLastImage 
+  getLastImage,
+  clearUserMemory
 } = require('../utils/memoryHandler');
 
 module.exports = {
@@ -36,6 +37,11 @@ module.exports = {
       subcommand
         .setName('image')
         .setDescription('저장된 이미지 정보 확인')
+    )
+    .addSubcommand(subcommand =>
+      subcommand
+        .setName('clear')
+        .setDescription('메모리 완전 정리 (모든 데이터 삭제)')
     ),
 
   async execute(interaction) {
@@ -56,6 +62,9 @@ module.exports = {
           break;
         case 'image':
           await handleImageCommand(interaction, userId);
+          break;
+        case 'clear':
+          await handleClearCommand(interaction, userId);
           break;
         default:
           await interaction.reply('알 수 없는 하위 명령어입니다.');
@@ -82,6 +91,27 @@ async function handleStatsCommand(interaction) {
     .setFooter({ text: '메모리는 24시간 후 자동 삭제됩니다' });
 
   await interaction.reply({ embeds: [embed] });
+}
+
+async function handleClearCommand(interaction, userId) {
+  const result = clearUserMemory(userId);
+  
+  if (result.success) {
+    const embed = new EmbedBuilder()
+      .setTitle('🧠 메모리 정리 완료!')
+      .setColor(0x00FF00)
+      .addFields(
+        { name: '📸 삭제된 이미지', value: result.clearedData.images.toString(), inline: true },
+        { name: '💬 삭제된 대화', value: result.clearedData.conversations.toString(), inline: true },
+        { name: '🆕 상태', value: '모든 메모리가 초기화되었습니다', inline: false }
+      )
+      .setTimestamp()
+      .setFooter({ text: '새로운 시작입니다!' });
+
+    await interaction.reply({ embeds: [embed] });
+  } else {
+    await interaction.reply(`🤔 **메모리 정리 결과**\n\n${result.message}`);
+  }
 }
 
 async function handleContextCommand(interaction, userId) {
@@ -119,6 +149,27 @@ async function handleContextCommand(interaction, userId) {
   await interaction.reply({ embeds: [embed] });
 }
 
+async function handleClearCommand(interaction, userId) {
+  const result = clearUserMemory(userId);
+  
+  if (result.success) {
+    const embed = new EmbedBuilder()
+      .setTitle('🧠 메모리 정리 완료!')
+      .setColor(0x00FF00)
+      .addFields(
+        { name: '📸 삭제된 이미지', value: result.clearedData.images.toString(), inline: true },
+        { name: '💬 삭제된 대화', value: result.clearedData.conversations.toString(), inline: true },
+        { name: '🆕 상태', value: '모든 메모리가 초기화되었습니다', inline: false }
+      )
+      .setTimestamp()
+      .setFooter({ text: '새로운 시작입니다!' });
+
+    await interaction.reply({ embeds: [embed] });
+  } else {
+    await interaction.reply(`🤔 **메모리 정리 결과**\n\n${result.message}`);
+  }
+}
+
 async function handleHistoryCommand(interaction, userId, limit) {
   const conversations = getRecentConversations(userId, limit);
   
@@ -144,6 +195,27 @@ async function handleHistoryCommand(interaction, userId, limit) {
   await interaction.reply({ embeds: [embed] });
 }
 
+async function handleClearCommand(interaction, userId) {
+  const result = clearUserMemory(userId);
+  
+  if (result.success) {
+    const embed = new EmbedBuilder()
+      .setTitle('🧠 메모리 정리 완료!')
+      .setColor(0x00FF00)
+      .addFields(
+        { name: '📸 삭제된 이미지', value: result.clearedData.images.toString(), inline: true },
+        { name: '💬 삭제된 대화', value: result.clearedData.conversations.toString(), inline: true },
+        { name: '🆕 상태', value: '모든 메모리가 초기화되었습니다', inline: false }
+      )
+      .setTimestamp()
+      .setFooter({ text: '새로운 시작입니다!' });
+
+    await interaction.reply({ embeds: [embed] });
+  } else {
+    await interaction.reply(`🤔 **메모리 정리 결과**\n\n${result.message}`);
+  }
+}
+
 async function handleImageCommand(interaction, userId) {
   const lastImage = getLastImage(userId);
   
@@ -164,4 +236,25 @@ async function handleImageCommand(interaction, userId) {
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed] });
+}
+
+async function handleClearCommand(interaction, userId) {
+  const result = clearUserMemory(userId);
+  
+  if (result.success) {
+    const embed = new EmbedBuilder()
+      .setTitle('🧠 메모리 정리 완료!')
+      .setColor(0x00FF00)
+      .addFields(
+        { name: '📸 삭제된 이미지', value: result.clearedData.images.toString(), inline: true },
+        { name: '💬 삭제된 대화', value: result.clearedData.conversations.toString(), inline: true },
+        { name: '🆕 상태', value: '모든 메모리가 초기화되었습니다', inline: false }
+      )
+      .setTimestamp()
+      .setFooter({ text: '새로운 시작입니다!' });
+
+    await interaction.reply({ embeds: [embed] });
+  } else {
+    await interaction.reply(`🤔 **메모리 정리 결과**\n\n${result.message}`);
+  }
 }
