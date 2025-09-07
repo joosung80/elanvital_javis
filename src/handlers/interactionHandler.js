@@ -1,4 +1,5 @@
 const { executeScheduleDelete, cancelScheduleDelete, quickDeleteEvent, createEditModal, executeEventUpdate } = require('../utils/scheduleHandler');
+const { executeTaskComplete } = require('../utils/taskHandler');
 
 async function handleInteractionCreate(interaction) {
   if (interaction.isButton()) {
@@ -8,12 +9,22 @@ async function handleInteractionCreate(interaction) {
   }
 }
 
+
 async function handleButtonInteraction(interaction) {
   try {
     const customId = interaction.customId;
     console.log(`[BUTTON DEBUG] 🔘 버튼 클릭: ${customId}`);
     
-    if (customId.startsWith('delete_')) {
+    if (customId.startsWith('complete_task_')) {
+      const parts = customId.split('_');
+      if (parts.length >= 4) {
+          const sessionId = parts.slice(2, -1).join('_');
+          const taskIndex = parseInt(parts[parts.length - 1]);
+          await interaction.deferUpdate();
+          const result = await executeTaskComplete(sessionId, taskIndex);
+          await interaction.editReply({ content: result.message, components: [] });
+      }
+    } else if (customId.startsWith('delete_')) {
       const parts = customId.split('_');
       if (parts.length >= 3) {
           const sessionId = parts.slice(1, -1).join('_');

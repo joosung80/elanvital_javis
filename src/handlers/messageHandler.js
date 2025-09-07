@@ -6,6 +6,8 @@ const { processImageGeneration } = require('../utils/imageHandler');
 const { splitMessageForMobile } = require('../utils/messageUtils');
 const { processGeneralQuestion } = require('../utils/generalHandler');
 const { handleDocumentRequest } = require('../utils/documentHandler');
+const { addTask, listTasks, cacheTasksForCompletion, searchAndCacheTasks } = require('../utils/taskHandler');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 async function handleMessageCreate(message) {
   if (message.author.bot || message.content.startsWith('/')) return;
@@ -49,6 +51,9 @@ async function handleMessageCreate(message) {
         case 'MEMORY':
           botResponse = await handleMemoryRequest(message, classification);
           break;
+        case 'TASK':
+          botResponse = await handleTaskRequest(message, classification, actualContent);
+          break;
         case 'GENERAL':
         default:
           botResponse = await handleGeneralRequest(message, classification);
@@ -68,6 +73,138 @@ async function handleHelpRequest(message, classification) {
     const helpMessage = `🤖 **Elanvital Agent 기능 안내**...`; // Full message content here
     await message.reply(helpMessage);
     return `도움말 제공 완료`;
+}
+
+async function handleTaskRequest(message, classification, actualContent) {
+    try {
+        if (classification.taskType === 'add') {
+            const content = classification.extractedInfo.content || actualContent;
+            if (!content) {
+                await message.reply('📝 추가할 할 일 내용을 입력해주세요.');
+                return '할 일 내용 없음';
+            }
+            const task = await addTask(content);
+            await message.reply(`✅ **Google Tasks에 할 일을 추가했습니다!**\n**할 일:** ${task.title}`);
+            return `Google Tasks 할 일 추가 완료: ${task.title}`;
+
+        } else if (classification.taskType === 'query') {
+            const tasks = await listTasks();
+            if (tasks.length === 0) {
+                await message.reply('🗒️ 완료할 할 일이 없습니다.');
+                return '등록된 할 일 없음';
+            }
+
+            // Cache tasks for interactive completion
+            const sessionId = cacheTasksForCompletion(tasks);
+            
+            // Create numbered list
+            const taskList = tasks.map((task, index) => 
+                `${index + 1}. **${task.title}** (목록: ${task.tasklistTitle})`
+            ).join('\n');
+
+            // Create buttons (max 5 buttons per row, Discord limit)
+            const buttons = [];
+            const maxTasks = Math.min(tasks.length, 10); // Limit to 10 tasks for UI clarity
+            
+            for (let i = 0; i < maxTasks; i++) {
+                buttons.push(
+                    new ButtonBuilder()
+                        .setCustomId(`complete_task_${sessionId}_${i}`)
+                        .setLabel(`${i + 1}`)
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji('✅')
+                );
+            }
+
+            // Split buttons into rows (max 5 buttons per row)
+            const rows = [];
+            for (let i = 0; i < buttons.length; i += 5) {
+                const row = new ActionRowBuilder().addComponents(buttons.slice(i, i + 5));
+                rows.push(row);
+            }
+
+            await message.reply({
+                content: `🗒️ **완료할 작업을 선택해주세요:**\n\n${taskList}\n\n아래 번호를 클릭하여 완료 처리하세요:`,
+                components: rows
+            });
+            
+            return 'Google Tasks 목록 조회 완료 (버튼 방식)';
+            
+        } else if (classification.taskType === 'complete') {
+            const searchKeyword = classification.extractedInfo.content || actualContent;
+            if (!searchKeyword) {
+                await message.reply('🔍 완료하려는 할 일의 키워드를 입력해주세요.');
+                return '완료할 할 일 키워드 없음';
+            }
+
+            // Extract keyword by removing completion-related words
+            const cleanKeyword = searchKeyword
+                .replace(/완료\s*처리해줘?|끝났어|했어|완료해줘?|처리해줘?|삭제해줘?|지워줘?|취소해줘?/gi, '')
+                .trim();
+
+            const { sessionId, matchedTasks, autoCompleted, completedTask } = await searchAndCacheTasks(cleanKeyword);
+            
+            // If auto-completed, show success message
+            if (autoCompleted && completedTask) {
+                await message.reply(`✅ **자동 완료!**\n할 일 **'${completedTask.title}'**을(를) 완료했습니다. (유사도: ${Math.round(completedTask.similarity * 100)}%)`);
+                return `할 일 자동 완료: ${completedTask.title}`;
+            }
+            
+            if (!matchedTasks || matchedTasks.length === 0) {
+                await message.reply(`🔍 **'${cleanKeyword}'**와 관련된 할 일을 찾을 수 없습니다.\n전체 목록을 확인하려면 "할일 목록 보여줘"라고 입력해주세요.`);
+                return '관련 할 일 없음';
+            }
+
+            // Create numbered list of matched tasks with similarity scores
+            const taskList = matchedTasks.map((task, index) => 
+                `${index + 1}. **${task.title}** (목록: ${task.tasklistTitle}) - 유사도: ${Math.round(task.similarity * 100)}%`
+            ).join('\n');
+
+            // Create buttons for matched tasks
+            const buttons = [];
+            const maxTasks = Math.min(matchedTasks.length, 10);
+            
+            for (let i = 0; i < maxTasks; i++) {
+                buttons.push(
+                    new ButtonBuilder()
+                        .setCustomId(`complete_task_${sessionId}_${i}`)
+                        .setLabel(`${i + 1}`)
+                        .setStyle(ButtonStyle.Success)
+                        .setEmoji('✅')
+                );
+            }
+
+            // Split buttons into rows (max 5 buttons per row)
+            const rows = [];
+            for (let i = 0; i < buttons.length; i += 5) {
+                const row = new ActionRowBuilder().addComponents(buttons.slice(i, i + 5));
+                rows.push(row);
+            }
+
+            await message.reply({
+                content: `🔍 **'${cleanKeyword}'**와 관련된 할 일을 찾았습니다:\n\n${taskList}\n\n완료할 작업의 번호를 클릭해주세요:`,
+                components: rows
+            });
+            
+            return `관련 할 일 검색 완료: ${matchedTasks.length}개 발견`;
+        }
+    } catch (error) {
+        console.error('Google Tasks 처리 중 오류:', error);
+        
+        let replyMessage = '알 수 없는 오류가 발생했습니다.';
+        if (error.message.includes('credentials.json not found')) {
+            replyMessage = '🔒 **인증 파일 없음!**\n`credentials.json` 파일을 프로젝트 최상단에 추가해주세요.';
+        } else if (error.message.includes('invalid_grant')) {
+            replyMessage = '🔒 **인증 실패!**\n인증 정보가 만료되었거나 올바르지 않습니다. `token.json` 파일을 삭제하고 다시 시도해주세요.';
+        } else if (error.message.includes('No task lists found')) {
+            replyMessage = '🚫 **태스크 리스트 없음!**\nGoogle Tasks에서 태스크 리스트를 먼저 생성해주세요.';
+        } else {
+            replyMessage = '🔒 **Google 연동이 필요합니다.**\n처음 사용하는 경우, 콘솔에 표시된 URL에 접속하여 로그인을 완료해주세요.';
+        }
+        
+        await message.reply(replyMessage);
+        return `Google Tasks 오류: ${error.message}`;
+    }
 }
 
 async function handleScheduleRequest(message, classification, actualContent) {

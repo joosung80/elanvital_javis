@@ -6,6 +6,7 @@
  * - 대화 압축: 오래된 대화들을 요약하여 메모리 효율성 증대
  */
 
+require('dotenv').config();
 const OpenAI = require('openai');
 
 // 사용자별 메모리 저장소

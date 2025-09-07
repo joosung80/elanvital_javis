@@ -1,5 +1,6 @@
 const OpenAI = require('openai');
 const { authorize, listEvents, addEvent, deleteEvent, updateEvent, searchEvents } = require('../google-calendar');
+const { calculateMatchScore } = require('./similarityUtils');
 
 // OpenAI 클라이언트 초기화
 const openai = new OpenAI({
@@ -733,11 +734,11 @@ async function deleteScheduleEvent(input, userId = null) {
         // 모든 일정의 유사도 계산 및 정렬
         const allSimilarities = events.map(event => ({
             event: event,
-            similarity: calculateSimilarity(deleteRequest.searchKeyword, event.summary || '')
+            similarity: calculateMatchScore(deleteRequest.searchKeyword, event.summary || '')
         })).sort((a, b) => b.similarity - a.similarity);
         
-        // 유사도가 0%보다 큰 항목만 필터링
-        const relevantSimilarities = allSimilarities.filter(item => item.similarity > 0);
+        // 유사도가 30%보다 큰 항목만 필터링
+        const relevantSimilarities = allSimilarities.filter(item => item.similarity > 0.3);
         
         console.log(`[DELETE DEBUG] 🔍 유사도 매칭 결과:`);
         relevantSimilarities.forEach((item, index) => {
@@ -751,6 +752,28 @@ async function deleteScheduleEvent(input, userId = null) {
                 success: false,
                 message: `"${deleteRequest.searchKeyword}"와 유사한 일정을 찾을 수 없습니다.`
             };
+        }
+
+        // 80% 이상 유사도이고 후보가 1개만 있으면 자동 삭제
+        const bestMatch = relevantSimilarities[0];
+        if (bestMatch.similarity >= 0.8 && relevantSimilarities.length === 1) {
+            console.log(`[DELETE DEBUG] 🎯 자동 삭제 조건 충족 - 유사도: ${(bestMatch.similarity * 100).toFixed(1)}%`);
+            
+            try {
+                await deleteEvent(auth, bestMatch.event.id);
+                console.log(`[DELETE DEBUG] ✅ 자동 삭제 완료: "${bestMatch.event.summary}"`);
+                
+                return {
+                    success: true,
+                    message: `🗑️ **자동 삭제 완료!**\n일정 **'${bestMatch.event.summary}'**을(를) 삭제했습니다. (유사도: ${Math.round(bestMatch.similarity * 100)}%)`
+                };
+            } catch (error) {
+                console.error(`[DELETE DEBUG] ❌ 자동 삭제 실패:`, error);
+                return {
+                    success: false,
+                    message: '일정 삭제 중 오류가 발생했습니다.'
+                };
+            }
         }
         
         // 세션 ID 생성 (사용자 ID + 타임스탬프)
