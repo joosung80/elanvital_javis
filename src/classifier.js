@@ -1,4 +1,8 @@
 const OpenAI = require('openai');
+const { 
+  getCurrentContext, 
+  getRecentConversations 
+} = require('./utils/memoryHandler');
 require('dotenv').config();
 
 const openai = new OpenAI({
@@ -38,6 +42,14 @@ function getUserSession(userId) {
  * @returns {Object} 분류 결과
  */
 async function classifyUserInput(content, attachments = [], userId) {
+    // 메모리에서 사용자 컨텍스트 가져오기
+    const currentContext = getCurrentContext(userId);
+    const recentConversations = getRecentConversations(userId, 3);
+    
+    console.log(`[CLASSIFIER] 🧠 메모리 컨텍스트 로드:`);
+    console.log(`[CLASSIFIER] 📋 현재 컨텍스트:`, currentContext);
+    console.log(`[CLASSIFIER] 💬 최근 대화 ${recentConversations.length}개`);
+    
     // 사용자 세션 정보 저장
     const sessionData = {
         firstPrompt: content,
@@ -93,9 +105,32 @@ async function classifyUserInput(content, attachments = [], userId) {
    - 예: "안녕하세요", "날씨가 어때?", "프로그래밍 질문", "설명해줘", "도움말"
    - 확실하지 않은 경우 GENERAL로 분류하세요
 
-사용자 입력:
+메모리 컨텍스트 (분류 참고용):
+- 마지막 이미지: ${currentContext.lastImageUrl ? '있음' : '없음'}
+- 마지막 주제: ${currentContext.lastTopic || '없음'}
+- 세션 타입: ${currentContext.sessionType || '없음'}
+
+최근 대화 기록 (분류 참고용):
+${recentConversations.length > 0 ? 
+  recentConversations.map((conv, i) => 
+    `${i+1}. [${conv.category}] 사용자: "${conv.userMessage.substring(0, 50)}${conv.userMessage.length > 50 ? '...' : ''}" → 봇: "${conv.botResponse.substring(0, 50)}${conv.botResponse.length > 50 ? '...' : ''}"`
+  ).join('\n') : 
+  '없음'
+}
+
+현재 사용자 입력:
 텍스트: "${content}"
 첨부파일: ${attachments.length > 0 ? attachments.map(att => `${att.name} (${att.contentType})`).join(', ') : '없음'}
+
+분류 가이드라인:
+1. 이미지 관련 명시적 키워드가 있는 경우 → IMAGE로 분류
+   - "그려줘", "이미지", "수정", "바꿔줘", "더 밝게", "색깔 변경" 등
+2. 명시적 컨텍스트 요청인 경우 → 해당 카테고리로 분류  
+   - "대화를 바탕으로", "이번에는", "이제는", "아까 이미지를" 등
+3. 단순 정보 요청은 메모리와 관계없이 → GENERAL로 분류
+   - "태양계 구성요소", "날씨가 어때?", "설명해줘" 등
+4. 최근 대화 주제는 참고용으로만 사용, 강제 분류하지 않음
+5. 확실하지 않으면 GENERAL로 분류
 
 응답은 반드시 다음 JSON 형식으로만 답변해주세요:
 
@@ -153,7 +188,14 @@ SCHEDULE 카테고리인 경우:
             
             return {
                 ...classification,
-                sessionData: getUserSession(userId)
+                sessionData: getUserSession(userId),
+                memoryContext: {
+                    hasLastImage: !!currentContext.lastImageUrl,
+                    lastTopic: currentContext.lastTopic,
+                    sessionType: currentContext.sessionType,
+                    recentConversationCount: recentConversations.length,
+                    usedMemoryForClassification: true
+                }
             };
         }
         
@@ -162,7 +204,14 @@ SCHEDULE 카테고리인 경우:
             category: 'GENERAL',
             confidence: 0.5,
             reason: '분류 실패로 기본 카테고리 적용',
-            sessionData: getUserSession(userId)
+            sessionData: getUserSession(userId),
+            memoryContext: {
+                hasLastImage: !!currentContext.lastImageUrl,
+                lastTopic: currentContext.lastTopic,
+                sessionType: currentContext.sessionType,
+                recentConversationCount: recentConversations.length,
+                usedMemoryForClassification: true
+            }
         };
         
     } catch (error) {
@@ -172,7 +221,15 @@ SCHEDULE 카테고리인 경우:
             confidence: 0.0,
             reason: '오류로 인한 기본 카테고리 적용',
             error: error.message,
-            sessionData: getUserSession(userId)
+            sessionData: getUserSession(userId),
+            memoryContext: {
+                hasLastImage: !!currentContext.lastImageUrl,
+                lastTopic: currentContext.lastTopic,
+                sessionType: currentContext.sessionType,
+                recentConversationCount: recentConversations.length,
+                usedMemoryForClassification: false,
+                error: true
+            }
         };
     }
 }

@@ -201,6 +201,58 @@ client.on('messageCreate', async message => {
     );
 
     console.log(`[GPT-4o-mini 분류 결과] 사용자: ${message.author.tag}, 카테고리: ${classification.category}, 신뢰도: ${classification.confidence}`);
+    
+    // 메모리 컨텍스트 정보 로그
+    if (classification.memoryContext) {
+      console.log(`[MEMORY CLASSIFICATION] 🧠 메모리 활용 분류:`);
+      console.log(`[MEMORY CLASSIFICATION] 📸 저장된 이미지: ${classification.memoryContext.hasLastImage ? '있음' : '없음'}`);
+      console.log(`[MEMORY CLASSIFICATION] 📋 마지막 주제: ${classification.memoryContext.lastTopic || '없음'}`);
+      console.log(`[MEMORY CLASSIFICATION] 🔄 세션 타입: ${classification.memoryContext.sessionType || '없음'}`);
+      console.log(`[MEMORY CLASSIFICATION] 💬 최근 대화 수: ${classification.memoryContext.recentConversationCount}`);
+      console.log(`[MEMORY CLASSIFICATION] ✅ 메모리 활용 여부: ${classification.memoryContext.usedMemoryForClassification}`);
+    }
+
+    // 메모리 기반 특별 처리 - 더 엄격한 조건
+    if (classification.memoryContext && classification.memoryContext.hasLastImage && 
+        message.attachments.size === 0 && classification.category !== 'SCHEDULE') {
+      
+      const messageText = messageContent || message.content;
+      
+      // 명시적인 이미지 관련 키워드나 컨텍스트 기반 요청 확인
+      const explicitImageKeywords = [
+        '그려', '그림', '이미지', '수정', '바꿔', '변경', '만들어', 'draw', 'image', 'modify', 'change',
+        '더 밝게', '더 어둡게', '색깔', '배경', '스타일', '예쁘게', '멋있게', '귀엽게'
+      ];
+      
+      const contextKeywords = [
+        '대화를 바탕으로', '컨텍스트를 바탕으로', '이전 이미지', '방금 전', '아까',
+        '이번에는', '이제는', '다시', '또', '계속해서'
+      ];
+      
+      const hasExplicitImageKeyword = explicitImageKeywords.some(keyword => 
+        messageText.toLowerCase().includes(keyword.toLowerCase())
+      );
+      
+      const hasContextKeyword = contextKeywords.some(keyword => 
+        messageText.toLowerCase().includes(keyword.toLowerCase())
+      );
+      
+      // 이미지 관련 키워드가 있거나 명시적인 컨텍스트 요청인 경우만 재분류
+      if (hasExplicitImageKeyword || hasContextKeyword) {
+        console.log(`[MEMORY OVERRIDE] 🧠 이미지 관련 키워드 감지: "${messageText}"`);
+        console.log(`[MEMORY OVERRIDE] 🔍 이미지 키워드: ${hasExplicitImageKeyword}, 컨텍스트 키워드: ${hasContextKeyword}`);
+        
+        classification.category = 'IMAGE';
+        classification.reason = '메모리에 저장된 이미지와 명시적인 이미지 관련 요청으로 판단';
+        classification.confidence = Math.min(0.9, classification.confidence + 0.2);
+        classification.memoryOverride = true;
+        
+        console.log(`[MEMORY OVERRIDE] ✅ 카테고리 재분류: IMAGE (신뢰도: ${classification.confidence})`);
+      } else {
+        console.log(`[MEMORY OVERRIDE] ❌ 이미지 키워드 없음: 일반 질문으로 유지`);
+        console.log(`[MEMORY OVERRIDE] 📝 메시지: "${messageText}"`);
+      }
+    }
 
     let botResponse = '';
     
@@ -302,6 +354,7 @@ async function handleScheduleRequest(message, classification, actualContent = nu
         content: result.message,
         components: result.components
       });
+      return `스케줄 인터랙티브 응답: ${result.message}`;
     } else {
       // 일반 메시지인 경우
       const messageChunks = splitMessageForMobile(result.message);
@@ -315,10 +368,12 @@ async function handleScheduleRequest(message, classification, actualContent = nu
       }
       
       console.log(`[SCHEDULE DEBUG] ✅ 스케줄 요청 처리 완료 (${messageChunks.length}개 메시지)`);
+      return `스케줄 처리 완료: ${result.message}`;
     }
   } catch (error) {
     console.error(`[SCHEDULE DEBUG] ❌ 스케줄 핸들링 오류:`, error);
     await message.reply('일정 처리 중 오류가 발생했습니다. `/myschedule` 명령어를 사용해보세요.');
+    return `스케줄 처리 오류: ${error.message}`;
   }
 }
 
@@ -390,7 +445,8 @@ async function handleImageRequest(message, classification, actualContent = null)
         imageToUse.mimeType,
         message.author.tag,
         message.author.displayAvatarURL(),
-        message
+        message,
+        message.author.id
       );
 
       if (result.success) {
@@ -399,9 +455,11 @@ async function handleImageRequest(message, classification, actualContent = null)
           embeds: [result.embed],
           files: result.files
         });
+        return `이미지 ${isFromMemory ? '수정' : '생성'} 완료`;
       } else {
         console.log(`[IMAGE DEBUG] ❌ 이미지 수정 실패:`, result.textResponse || result.error);
         await message.reply(result.textResponse || "이미지를 생성할 수 없습니다.");
+        return `이미지 처리 실패: ${result.textResponse || result.error}`;
       }
       
     } else {
@@ -417,7 +475,8 @@ async function handleImageRequest(message, classification, actualContent = null)
         null,
         message.author.tag,
         message.author.displayAvatarURL(),
-        message
+        message,
+        message.author.id
       );
 
       if (result.success) {
@@ -426,9 +485,11 @@ async function handleImageRequest(message, classification, actualContent = null)
           embeds: [result.embed],
           files: result.files
         });
+        return '이미지 생성 완료';
       } else {
         console.log(`[IMAGE DEBUG] ❌ 이미지 생성 실패:`, result.textResponse || result.error);
         await message.reply(result.textResponse || '죄송합니다. 이미지를 생성할 수 없습니다. `/image` 명령어를 사용해보세요.');
+        return `이미지 생성 실패: ${result.textResponse || result.error}`;
       }
     }
     
@@ -436,6 +497,7 @@ async function handleImageRequest(message, classification, actualContent = null)
     console.error(`[IMAGE DEBUG] 💥 이미지 처리 중 예외 발생:`, error);
     console.error(`[IMAGE DEBUG] 💥 스택 트레이스:`, error.stack);
     await message.reply('이미지 처리 중 오류가 발생했습니다. `/image` 명령어를 사용해보세요.');
+    return `이미지 처리 오류: ${error.message}`;
   }
 }
 
@@ -473,15 +535,18 @@ async function handleGeneralRequest(message, classification) {
         }
       }
       console.log(`[GENERAL DEBUG] ✅ 일반 질문 처리 완료 (${result.messageChunks.length}개 메시지)`);
+      return `일반 질문 처리 완료: ${result.messageChunks.join(' ')}`;
     } else {
       await message.reply(result.messageChunks[0]);
       console.log(`[GENERAL DEBUG] ❌ 일반 질문 처리 실패: ${result.error}`);
+      return `일반 질문 처리 실패: ${result.error}`;
     }
     
   } catch (error) {
     console.error(`[GENERAL DEBUG] ❌ 일반 질문 핸들링 오류:`, error);
     console.error(`[GENERAL DEBUG] ❌ 오류 스택:`, error.stack);
     await message.reply('죄송합니다. 답변을 생성하는 동안 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    return `일반 질문 처리 오류: ${error.message}`;
   }
 }
 

@@ -2,6 +2,10 @@ const { GoogleGenAI } = require('@google/genai');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
 const OpenAI = require('openai');
+const { 
+  getCurrentContext, 
+  getRecentConversations 
+} = require('./memoryHandler');
 
 // Initialize APIs
 const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
@@ -50,12 +54,27 @@ async function urlToGenerativePart(url, mimeType) {
  * ChatGPT를 사용하여 Gemini용 이미지 프롬프트를 보강합니다.
  * @param {string} originalPrompt - 원본 프롬프트
  * @param {boolean} isImageEdit - 이미지 수정 모드인지 여부
+ * @param {string} userId - 사용자 ID (컨텍스트용)
  * @returns {string} 보강된 프롬프트
  */
-async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false) {
+async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, userId = null) {
     console.log(`[PROMPT ENHANCE] 🚀 프롬프트 보강 시작`);
     console.log(`[PROMPT ENHANCE] 📝 원본 프롬프트: "${originalPrompt}"`);
     console.log(`[PROMPT ENHANCE] 🔄 이미지 수정 모드: ${isImageEdit}`);
+    console.log(`[PROMPT ENHANCE] 👤 사용자 ID: ${userId || 'null'}`);
+    
+    // 컨텍스트 정보 가져오기
+    let contextInfo = '';
+    if (userId) {
+        const recentConversations = getRecentConversations(userId, 3);
+        if (recentConversations.length > 0) {
+            console.log(`[PROMPT ENHANCE] 🧠 최근 대화 ${recentConversations.length}개 활용`);
+            contextInfo = '\n\n최근 대화 컨텍스트:\n' + 
+                recentConversations.map((conv, i) => 
+                    `${i+1}. 사용자: "${conv.userMessage}"\n   봇: "${conv.botResponse.substring(0, 200)}${conv.botResponse.length > 200 ? '...' : ''}"`
+                ).join('\n');
+        }
+    }
     
     try {
         const systemPrompt = isImageEdit 
@@ -73,7 +92,7 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false) {
 출력: "Modify the image to be brighter and more vibrant, enhance the lighting and increase overall brightness while maintaining natural colors and details"
 
 입력: "배경을 바다로 바꿔줘"  
-출력: "Modify the image by replacing the background with a beautiful ocean scene, featuring clear blue water, gentle waves, and a bright sky while keeping the main subject intact"`
+출력: "Modify the image by replacing the background with a beautiful ocean scene, featuring clear blue water, gentle waves, and a bright sky while keeping the main subject intact"${contextInfo}`
             : `당신은 이미지 생성을 위한 프롬프트 전문가입니다. 사용자의 간단한 이미지 생성 요청을 Gemini AI가 고품질 이미지를 생성할 수 있도록 상세하고 구체적인 프롬프트로 변환해주세요.
 
 규칙:
@@ -82,13 +101,19 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false) {
 3. 영어로 작성 (Gemini는 영어 프롬프트에 더 잘 반응)
 4. 200자 이내로 간결하게
 5. 고품질을 위한 키워드 포함 (high quality, detailed, professional)
+6. 컨텍스트가 있다면 이전 대화 내용을 참고하여 관련된 이미지를 생성
 
 예시:
 입력: "고양이 그려줘"
 출력: "A cute and fluffy cat, realistic style, high quality, detailed fur texture, bright eyes, sitting pose, soft natural lighting, professional photography"
 
 입력: "미래도시 풍경"
-출력: "Futuristic cityscape with tall skyscrapers, neon lights, flying cars, cyberpunk style, night scene, vibrant colors, high quality digital art, detailed architecture"`;
+출력: "Futuristic cityscape with tall skyscrapers, neon lights, flying cars, cyberpunk style, night scene, vibrant colors, high quality digital art, detailed architecture"
+
+컨텍스트 기반 예시:
+이전 대화: "태양계 구성요소 설명"
+입력: "위 대화를 바탕으로 그림을 그려주세요"
+출력: "Solar system illustration showing the sun at center with 8 planets orbiting around it, including Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune, asteroid belt, realistic space scene, high quality digital art, detailed planetary surfaces, cosmic background with stars"${contextInfo}`;
 
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -121,9 +146,10 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false) {
  * @param {string} requesterTag - 요청자 태그
  * @param {string} requesterAvatarURL - 요청자 아바타 URL
  * @param {Object} discordMessage - Discord 메시지 객체 (피드백용)
+ * @param {string} userId - 사용자 ID (컨텍스트용)
  * @returns {Object} 결과 객체 { success, embed?, files?, textResponse? }
  */
-async function processImageGeneration(prompt, imageUrl = null, imageMimeType = null, requesterTag, requesterAvatarURL, discordMessage = null) {
+async function processImageGeneration(prompt, imageUrl = null, imageMimeType = null, requesterTag, requesterAvatarURL, discordMessage = null, userId = null) {
     console.log(`[IMAGE HANDLER] 🎨 이미지 처리 핸들러 시작`);
     console.log(`[IMAGE HANDLER] 📝 프롬프트: "${prompt}"`);
     console.log(`[IMAGE HANDLER] 🖼️ 이미지 URL: ${imageUrl || 'null'}`);
@@ -151,7 +177,7 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
             }
         }
         
-        const enhancedPrompt = await enhancePromptWithChatGPT(prompt, isImageEdit);
+        const enhancedPrompt = await enhancePromptWithChatGPT(prompt, isImageEdit, userId);
         
         // Discord 피드백: 보강된 프롬프트 표시
         if (discordMessage) {
