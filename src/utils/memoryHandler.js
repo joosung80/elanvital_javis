@@ -6,8 +6,6 @@
  * - 대화 압축: 오래된 대화들을 요약하여 메모리 효율성 증대
  */
 
-require('dotenv').config();
-const OpenAI = require('openai');
 
 // 사용자별 메모리 저장소
 const userMemories = new Map();
@@ -19,16 +17,7 @@ const MEMORY_EXPIRY_TIME = 24 * 60 * 60 * 1000;
 const MAX_CONVERSATIONS = 5; // 최대 보관할 대화 수
 const COMPRESSION_THRESHOLD = 8; // 이 수를 초과하면 압축 실행
 
-// OpenAI 클라이언트 초기화 (API 키가 있는 경우에만)
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-  console.log('[MEMORY] ✅ OpenAI 클라이언트 초기화 완료');
-} else {
-  console.log('[MEMORY] ⚠️ OpenAI API 키 없음 - 압축 기능 비활성화');
-}
+const { getOpenAIClient } = require('./openaiClient');
 
 /**
  * 사용자 메모리 구조
@@ -266,9 +255,12 @@ function searchDocuments(userId, query) {
 async function compressConversations(conversations) {
     console.log(`[MEMORY COMPRESS] 🗜️ 대화 압축 시작: ${conversations.length}개 대화`);
     
-    // OpenAI 클라이언트가 없으면 기본 요약 생성
-    if (!openai) {
-        console.log(`[MEMORY COMPRESS] ⚠️ OpenAI 클라이언트 없음 - 기본 요약 생성`);
+    // OpenAI 클라이언트 초기화 시도
+    let openai;
+    try {
+        openai = getOpenAIClient();
+    } catch (error) {
+        console.log(`[MEMORY COMPRESS] ⚠️ OpenAI 클라이언트 초기화 실패 - 기본 요약 생성:`, error.message);
         const categories = [...new Set(conversations.map(c => c.category))];
         const recentTopics = conversations.slice(-3).map(c => c.userMessage.substring(0, 50)).join(', ');
         

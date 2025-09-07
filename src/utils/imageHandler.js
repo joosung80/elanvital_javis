@@ -1,17 +1,14 @@
 const { GoogleGenAI } = require('@google/genai');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
-const OpenAI = require('openai');
 const { 
   getCurrentContext, 
   getRecentConversations 
 } = require('./memoryHandler');
+const { getOpenAIClient } = require('./openaiClient');
 
 // Initialize APIs
 const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY);
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
 
 // Function to convert image URL to a format the API understands
 async function urlToGenerativePart(url, mimeType) {
@@ -117,6 +114,7 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
 
 **Now, process the following request based on the rules and context provided.**${contextInfo}`;
 
+        const openai = getOpenAIClient();
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [

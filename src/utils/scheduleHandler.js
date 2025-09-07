@@ -1,11 +1,6 @@
-const OpenAI = require('openai');
 const { authorize, listEvents, addEvent, deleteEvent, updateEvent, searchEvents } = require('../google-calendar');
 const { calculateMatchScore } = require('./similarityUtils');
-
-// OpenAI 클라이언트 초기화
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+const { getOpenAIClient } = require('./openaiClient');
 
 /**
  * 자연어 텍스트를 Google Calendar 이벤트 데이터로 파싱합니다.
@@ -124,7 +119,8 @@ async function parseEventWithGemini(text) {
     try {
         console.log(`[SCHEDULE DEBUG] 🤖 OpenAI GPT-4o-mini API 호출 중...`);
         
-        const response = await openai.chat.completions.create({
+        const openai = getOpenAIClient();
+    const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 {
@@ -220,7 +216,8 @@ async function getTimeRangeFromPeriod(period) {
     try {
         console.log(`[SCHEDULE DEBUG] 🤖 시간 범위 OpenAI GPT-4o-mini API 호출 중...`);
         
-        const response = await openai.chat.completions.create({
+        const openai = getOpenAIClient();
+    const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 {
@@ -604,7 +601,8 @@ async function parseDeleteRequest(text) {
     try {
         console.log(`[DELETE DEBUG] 🤖 OpenAI GPT-4o-mini API 호출 중...`);
         
-        const response = await openai.chat.completions.create({
+        const openai = getOpenAIClient();
+    const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
                 {

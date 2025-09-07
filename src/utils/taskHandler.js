@@ -152,6 +152,117 @@ async function completeTask(taskId, tasklistId) {
 
 
 /**
+ * Parses multiple tasks from various list formats.
+ * @param {string} content The content containing multiple tasks.
+ * @returns {Array<string>} Array of task titles.
+ */
+function parseMultipleTasks(content) {
+    // Remove common prefixes and clean up the content
+    const cleanContent = content.trim();
+    
+    // Comprehensive bullet point pattern - includes various Unicode bullet characters
+    const bulletPattern = /^[\s]*[-*•○●◦‣▪▫⁃◾◽▸▹►▻⦿⦾⚫⚪🔸🔹🔺🔻]\s*(.+)$/gm;
+    // Numbered list pattern
+    const numberedPattern = /^[\s]*\d+[\.\)]\s*(.+)$/gm;
+    
+    let tasks = [];
+    
+    // Try numbered lists first
+    const numberedMatches = [...cleanContent.matchAll(numberedPattern)];
+    if (numberedMatches.length > 1) {
+        tasks = numberedMatches.map(match => match[1].trim()).filter(task => task.length > 0);
+        return tasks;
+    }
+    
+    // Try bullet points with comprehensive pattern
+    const bulletMatches = [...cleanContent.matchAll(bulletPattern)];
+    if (bulletMatches.length >= 1) {
+        tasks = bulletMatches.map(match => match[1].trim()).filter(task => task.length > 0);
+        if (tasks.length > 0) {
+            return tasks;
+        }
+    }
+    
+    // Try newline separated (only if multiple lines and no single long sentence)
+    const lines = cleanContent.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    
+    // Filter out header lines that contain command words
+    const commandWords = ['추가해주세요', '추가해줘', '등록해주세요', '등록해줘', '만들어주세요', '만들어줘', '할일', '목록', '리스트'];
+    const filteredLines = lines.filter(line => {
+        // Skip lines that are primarily command/header text
+        const isCommandLine = commandWords.some(word => line.includes(word)) && 
+                             !line.match(bulletPattern) && // Not a bullet point
+                             !line.match(numberedPattern); // Not a numbered item
+        return !isCommandLine;
+    });
+    
+    // If we have multiple lines after filtering, or bullet/numbered items, treat as multiple tasks
+    if (filteredLines.length > 1 || 
+        filteredLines.some(line => line.match(bulletPattern) || line.match(numberedPattern))) {
+        
+        // Extract content from bullet points and numbered lists
+        const extractedTasks = filteredLines.map(line => {
+            // Remove comprehensive bullet points
+            let cleaned = line.replace(/^[\s]*[-*•○●◦‣▪▫⁃◾◽▸▹►▻⦿⦾⚫⚪🔸🔹🔺🔻]\s*/, '');
+            // Remove numbers with dots or parentheses
+            cleaned = cleaned.replace(/^[\s]*\d+[\.\)]\s*/, '');
+            return cleaned.trim();
+        }).filter(task => task.length > 0 && task.length < 100); // Avoid splitting long paragraphs
+        
+        if (extractedTasks.length > 0) {
+            return extractedTasks;
+        }
+    }
+    
+    // If no pattern matches, return as single task
+    return [cleanContent];
+}
+
+/**
+ * Creates multiple tasks.
+ * @param {Array<string>} taskTitles Array of task titles.
+ * @returns {Promise<Array<Object>>} Array of created tasks.
+ */
+async function addMultipleTasks(taskTitles) {
+    const auth = await authorize();
+    const service = google.tasks({ version: 'v1', auth });
+    
+    // Get the first task list
+    const res = await service.tasklists.list();
+    const taskLists = res.data.items;
+
+    if (!taskLists || taskLists.length === 0) {
+        throw new Error('No task lists found. Please create a task list in Google Tasks first.');
+    }
+    
+    const tasklistId = taskLists[0].id; // Use the default task list
+    const createdTasks = [];
+    const errors = [];
+
+    // Create tasks one by one (Google Tasks API doesn't support batch creation)
+    for (const title of taskTitles) {
+        try {
+            const task = {
+                title: title.trim(),
+            };
+
+            const response = await service.tasks.insert({
+                tasklist: tasklistId,
+                requestBody: task,
+            });
+
+            console.log('New task created:', response.data.title);
+            createdTasks.push(response.data);
+        } catch (error) {
+            console.error(`Failed to create task "${title}":`, error);
+            errors.push({ title, error: error.message });
+        }
+    }
+
+    return { createdTasks, errors };
+}
+
+/**
  * Creates a new task.
  * @param {string} title The title of the task.
  * @returns {Promise<Object>} The created task.
@@ -185,8 +296,10 @@ async function addTask(title) {
 module.exports = {
     listTasks,
     addTask,
+    addMultipleTasks,
     completeTask,
     cacheTasksForCompletion,
     executeTaskComplete,
     searchAndCacheTasks,
+    parseMultipleTasks,
 };

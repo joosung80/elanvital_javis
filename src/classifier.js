@@ -1,13 +1,8 @@
-const OpenAI = require('openai');
 const { 
   getCurrentContext, 
   getRecentConversations 
 } = require('./utils/memoryHandler');
-require('dotenv').config();
-
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-});
+const { getOpenAIClient } = require('./utils/openaiClient');
 
 // 사용자 세션 저장소 (실제 프로덕션에서는 데이터베이스 사용)
 const userSessions = new Map();
@@ -123,7 +118,10 @@ async function classifyUserInput(content, attachments = [], userId) {
     - 예: "장보기 할일 추가해줘", "할일 목록 보여줘", "장보기 완료해줘", "할일 삭제해줘"
 
     TASK 타입별 처리:
-    - add (추가): 사용자의 전체 문장에서 실제 할 일 내용만 추출해야 합니다. '추가해줘', '등록해줘', '만들어줘', '할일로', '부탁해' 와 같은 명령어 및 요청 어미는 반드시 제거하세요. 예를 들어 "진주성 짬뽕집 방문 예정 추가해줘" 라는 입력이 들어오면, "진주성 짬뽕집 방문 예정" 으로 추출해야 합니다.
+    - add (추가): 사용자의 전체 문장에서 실제 할 일 내용만 추출해야 합니다. '추가해줘', '등록해줘', '만들어줘', '할일로', '부탁해' 와 같은 명령어 및 요청 어미는 반드시 제거하세요. 
+      * 단일 할 일: "진주성 짬뽕집 방문 예정 추가해줘" → "진주성 짬뽕집 방문 예정"
+      * 멀티 할 일: "1. 장보기 2. 청소하기 3. 빨래하기 할일로 추가해줘" → "1. 장보기 2. 청소하기 3. 빨래하기"
+      * 리스트 형태의 여러 할 일이 포함된 경우 전체 리스트를 그대로 보존하여 추출합니다.
     - query (조회): "할일 목록 보여줘", "등록된 할일" 등.
     - complete (완료): 특정 할 일의 완료를 요청하는 경우. "~완료 처리해줘", "~끝났어", "~했어", "~삭제해줘", "~지워줘", "~취소해줘", "~없애줘", "~제거해줘" 등 완료나 삭제를 의미하는 모든 표현을 완료 처리로 분류합니다. 완료하려는 할 일의 키워드를 추출합니다.
 
@@ -193,7 +191,7 @@ TASK 카테고리인 경우:
     "reason": "분류 이유 설명",
     "taskType": "add|query|complete",
     "extractedInfo": {
-        "content": "할 일 추가(add)의 경우, 사용자의 요청 문장에서 '...해줘', '...부탁해'와 같은 명령어 부분을 제외한 순수한 할 일의 내용만 정확히 추출해야 합니다. 완료(complete)의 경우, '삭제해줘', '지워줘', '완료해줘' 등의 명령어를 제외하고 완료하려는 할 일을 찾기 위한 키워드를 추출합니다. 조회(query)시에는 빈 문자열입니다."
+        "content": "할 일 추가(add)의 경우, 사용자의 요청 문장에서 '...해줘', '...부탁해'와 같은 명령어 부분을 제외한 순수한 할 일의 내용만 정확히 추출해야 합니다. 여러 할 일이 리스트 형태로 포함된 경우 전체 리스트를 보존하여 추출합니다. 완료(complete)의 경우, '삭제해줘', '지워줘', '완료해줘' 등의 명령어를 제외하고 완료하려는 할 일을 찾기 위한 키워드를 추출합니다. 조회(query)시에는 빈 문자열입니다."
     }
 }
 
@@ -208,6 +206,7 @@ TASK 카테고리인 경우:
 `;
 
     try {
+        const openai = getOpenAIClient();
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [

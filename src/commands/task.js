@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { addTask, listTasks, cacheTasksForCompletion, searchAndCacheTasks } = require('../utils/taskHandler');
+const { addTask, addMultipleTasks, listTasks, cacheTasksForCompletion, searchAndCacheTasks, parseMultipleTasks } = require('../utils/taskHandler');
 
 // 모바일 친화적인 메시지 분할 함수
 function splitMessageForMobile(text, maxLength = 1800) {
@@ -94,8 +94,41 @@ async function handleAddTask(interaction) {
   
   await interaction.deferReply();
   
-  const task = await addTask(title);
-  await interaction.editReply(`✅ **Google Tasks에 할 일을 추가했습니다!**\n**할 일:** ${task.title}`);
+  // Parse multiple tasks
+  const taskTitles = parseMultipleTasks(title);
+  
+  if (taskTitles.length === 1) {
+    // Single task
+    const task = await addTask(taskTitles[0]);
+    await interaction.editReply(`✅ **Google Tasks에 할 일을 추가했습니다!**\n**할 일:** ${task.title}`);
+  } else {
+    // Multiple tasks
+    const { createdTasks, errors } = await addMultipleTasks(taskTitles);
+    
+    let responseMessage = `✅ **Google Tasks에 ${createdTasks.length}개의 할 일을 추가했습니다!**\n\n`;
+    
+    if (createdTasks.length > 0) {
+      responseMessage += '**추가된 할 일:**\n';
+      createdTasks.forEach((task, index) => {
+        responseMessage += `${index + 1}. ${task.title}\n`;
+      });
+    }
+    
+    if (errors.length > 0) {
+      responseMessage += `\n⚠️ **실패한 할 일 (${errors.length}개):**\n`;
+      errors.forEach((error, index) => {
+        responseMessage += `${index + 1}. ${error.title} - ${error.error}\n`;
+      });
+    }
+    
+    const chunks = splitMessageForMobile(responseMessage);
+    await interaction.editReply(chunks[0]);
+    
+    // Send additional chunks if needed
+    for (let i = 1; i < chunks.length; i++) {
+      await interaction.followUp({ content: chunks[i] });
+    }
+  }
 }
 
 async function handleListTasks(interaction) {

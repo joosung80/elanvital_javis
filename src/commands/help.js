@@ -9,12 +9,13 @@ module.exports = {
                 .setDescription('특정 기능 카테고리에 대한 상세 정보')
                 .setRequired(false)
                 .addChoices(
-                    { name: '📅 일정 관리 (Schedule)', value: 'schedule' },
-                    { name: '🎨 이미지 생성 (Image)', value: 'image' },
-                    { name: '📄 문서 분석 (Document)', value: 'document' },
-                    { name: '🧠 메모리 관리 (Memory)', value: 'memory' },
-                    { name: '💬 일반 질문 (General)', value: 'general' },
-                    { name: '🎤 음성 인식 (Voice)', value: 'voice' }
+                    { name: '📅 일정 관리', value: 'schedule' },
+                    { name: '✅ 할일 관리', value: 'task' },
+                    { name: '🎨 이미지 생성', value: 'image' },
+                    { name: '📄 문서 분석', value: 'document' },
+                    { name: '🧠 메모리 관리', value: 'memory' },
+                    { name: '💬 일반 질문', value: 'general' },
+                    { name: '🎤 음성 인식', value: 'voice' }
                 )),
     
     async execute(interaction) {
@@ -40,39 +41,39 @@ module.exports = {
                 .setDescription('저는 다음과 같은 기능들을 제공합니다:')
                 .addFields(
                     {
-                        name: '📅 일정 관리 (Schedule)',
-                        value: '• 일정 추가/조회/삭제\n• 인터랙티브 UI\n• 자연어 처리',
+                        name: '📅 일정 관리',
+                        value: '• Google Calendar 연동\n• 자연어로 일정 추가\n• 스마트 일정 삭제',
                         inline: true
                     },
                     {
-                        name: '🎨 이미지 생성 (Image)',
-                        value: '• AI 이미지 생성\n• 이미지 수정\n• 인포그래픽 제작',
+                        name: '✅ 할일 관리',
+                        value: '• Google Tasks 연동\n• 멀티 할일 추가\n• 스마트 완료 처리',
                         inline: true
                     },
                     {
-                        name: '📄 문서 분석 (Document)',
-                        value: '• PDF/Word 분석\n• 자동 요약\n• 문서 질문 답변',
+                        name: '🎨 이미지 생성',
+                        value: '• AI 이미지 생성\n• 이미지 수정\n• 프롬프트 자동 개선',
                         inline: true
                     },
                     {
-                        name: '🧠 메모리 관리 (Memory)',
-                        value: '• 대화 기록 저장\n• 컨텍스트 유지\n• 메모리 정리',
+                        name: '📄 문서 분석',
+                        value: '• PDF/Word 분석\n• 자동 요약\n• 문서 기반 질문 답변',
                         inline: true
                     },
                     {
-                        name: '💬 일반 질문 (General)',
-                        value: '• 모든 질문 답변\n• 문서 기반 답변\n• 자연스러운 대화',
+                        name: '🧠 메모리 관리',
+                        value: '• 대화 기록 저장\n• 컨텍스트 유지\n• 자동 압축',
                         inline: true
                     },
                     {
-                        name: '🎤 음성 인식 (Voice)',
-                        value: '• 음성 메시지 변환\n• OpenAI Whisper\n• 모바일 지원',
+                        name: '💬 일반 질문',
+                        value: '• GPT-4o 기반 답변\n• 문서 기반 답변\n• 자연스러운 대화',
                         inline: true
                     },
                     {
-                        name: '✨ 특별 기능',
-                        value: '• 자연어 처리\n• 메모리 기반 컨텍스트\n• 인터랙티브 UI\n• 모바일 친화적',
-                        inline: false
+                        name: '🎤 음성 인식',
+                        value: '• Whisper 음성 변환\n• 모바일 지원\n• 자동 기능 연동',
+                        inline: true
                     },
                     {
                         name: '📖 상세 정보',
@@ -91,7 +92,7 @@ module.exports = {
 function getCategoryHelp(category) {
     const categoryData = {
         schedule: {
-            title: '📅 일정 관리 (Schedule)',
+            title: '📅 일정 관리',
             description: 'Google Calendar와 연동된 스마트 일정 관리 시스템',
             fields: [
                 {
@@ -116,8 +117,39 @@ function getCategoryHelp(category) {
                 }
             ]
         },
+        task: {
+            title: '✅ 할일 관리',
+            description: 'Google Tasks와 연동된 스마트 할일 관리 시스템',
+            fields: [
+                {
+                    name: '📝 할일 추가',
+                    value: '```\n"장보기 할일 추가해줘"\n"운동하기 등록해줘"\n```\n**멀티 할일 추가:**\n```\n"하기 할일 목록 추가해주세요\n• 육아 휴직 신청\n• 장보기"\n```',
+                    inline: false
+                },
+                {
+                    name: '📋 할일 조회',
+                    value: '```\n"할일 목록 보여줘"\n"등록된 할일"\n"메모 현황 보여줘"\n```\n• 완료되지 않은 할일만 표시\n• 인터랙티브 완료 버튼 제공',
+                    inline: false
+                },
+                {
+                    name: '✅ 할일 완료',
+                    value: '```\n"장보기 완료 처리해줘"\n"운동하기 끝났어"\n"청소 삭제해줘" (완료 처리)\n```\n• 유사도 기반 스마트 매칭 (80% 이상 자동 완료)\n• 버튼 클릭으로 즉시 완료',
+                    inline: false
+                },
+                {
+                    name: '🎯 특별 기능',
+                    value: '• 다양한 불릿 포인트 지원 (•, ○, ●, -, * 등)\n• 번호 리스트 지원 (1., 1) 등)\n• 헤더 텍스트 자동 제거\n• 스마트 완료 (80% 유사도 자동 처리)',
+                    inline: false
+                },
+                {
+                    name: '💬 슬래시 커맨드',
+                    value: '• `/task add` - 할일 추가\n• `/task list` - 할일 목록\n• `/task complete` - 할일 완료',
+                    inline: false
+                }
+            ]
+        },
         image: {
-            title: '🎨 이미지 생성 (Image)',
+            title: '🎨 이미지 생성',
             description: 'Google Gemini AI를 활용한 고품질 이미지 생성 및 수정',
             fields: [
                 {
@@ -143,7 +175,7 @@ function getCategoryHelp(category) {
             ]
         },
         document: {
-            title: '📄 문서 분석 (Document)',
+            title: '📄 문서 분석',
             description: 'PDF, Word 문서의 지능형 분석 및 처리',
             fields: [
                 {
@@ -169,7 +201,7 @@ function getCategoryHelp(category) {
             ]
         },
         memory: {
-            title: '🧠 메모리 관리 (Memory)',
+            title: '🧠 메모리 관리',
             description: '지능형 대화 기록 및 컨텍스트 관리 시스템',
             fields: [
                 {
@@ -195,7 +227,7 @@ function getCategoryHelp(category) {
             ]
         },
         general: {
-            title: '💬 일반 질문 (General)',
+            title: '💬 일반 질문',
             description: '모든 종류의 질문에 대한 지능형 답변 시스템',
             fields: [
                 {
@@ -221,7 +253,7 @@ function getCategoryHelp(category) {
             ]
         },
         voice: {
-            title: '🎤 음성 인식 (Voice)',
+            title: '🎤 음성 인식',
             description: 'OpenAI Whisper를 활용한 고품질 음성-텍스트 변환',
             fields: [
                 {

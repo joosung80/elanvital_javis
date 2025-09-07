@@ -6,7 +6,7 @@ const { processImageGeneration } = require('../utils/imageHandler');
 const { splitMessageForMobile } = require('../utils/messageUtils');
 const { processGeneralQuestion } = require('../utils/generalHandler');
 const { handleDocumentRequest } = require('../utils/documentHandler');
-const { addTask, listTasks, cacheTasksForCompletion, searchAndCacheTasks } = require('../utils/taskHandler');
+const { addTask, addMultipleTasks, listTasks, cacheTasksForCompletion, searchAndCacheTasks, parseMultipleTasks } = require('../utils/taskHandler');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 async function handleMessageCreate(message) {
@@ -83,9 +83,38 @@ async function handleTaskRequest(message, classification, actualContent) {
                 await message.reply('📝 추가할 할 일 내용을 입력해주세요.');
                 return '할 일 내용 없음';
             }
-            const task = await addTask(content);
-            await message.reply(`✅ **Google Tasks에 할 일을 추가했습니다!**\n**할 일:** ${task.title}`);
-            return `Google Tasks 할 일 추가 완료: ${task.title}`;
+
+            // Parse multiple tasks
+            const taskTitles = parseMultipleTasks(content);
+            
+            if (taskTitles.length === 1) {
+                // Single task
+                const task = await addTask(taskTitles[0]);
+                await message.reply(`✅ **Google Tasks에 할 일을 추가했습니다!**\n**할 일:** ${task.title}`);
+                return `Google Tasks 할 일 추가 완료: ${task.title}`;
+            } else {
+                // Multiple tasks
+                const { createdTasks, errors } = await addMultipleTasks(taskTitles);
+                
+                let responseMessage = `✅ **Google Tasks에 ${createdTasks.length}개의 할 일을 추가했습니다!**\n\n`;
+                
+                if (createdTasks.length > 0) {
+                    responseMessage += '**추가된 할 일:**\n';
+                    createdTasks.forEach((task, index) => {
+                        responseMessage += `${index + 1}. ${task.title}\n`;
+                    });
+                }
+                
+                if (errors.length > 0) {
+                    responseMessage += `\n⚠️ **실패한 할 일 (${errors.length}개):**\n`;
+                    errors.forEach((error, index) => {
+                        responseMessage += `${index + 1}. ${error.title} - ${error.error}\n`;
+                    });
+                }
+                
+                await message.reply(responseMessage);
+                return `Google Tasks 멀티 할 일 추가 완료: ${createdTasks.length}개 성공, ${errors.length}개 실패`;
+            }
 
         } else if (classification.taskType === 'query') {
             const tasks = await listTasks();

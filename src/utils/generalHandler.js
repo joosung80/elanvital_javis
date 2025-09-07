@@ -1,17 +1,6 @@
-const OpenAI = require('openai');
 const fetch = require('node-fetch');
 const { getRecentDocuments, getCurrentContext } = require('./memoryHandler');
-
-// OpenAI 클라이언트 초기화 (API 키가 있는 경우에만)
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-  console.log('[GENERAL] ✅ OpenAI 클라이언트 초기화 완료');
-} else {
-  console.log('[GENERAL] ⚠️ OpenAI API 키 없음 - 일반 질문 기능 제한');
-}
+const { getOpenAIClient } = require('./openaiClient');
 
 /**
  * 모바일 친화적인 메시지 분할 함수
@@ -85,8 +74,11 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
     console.log(`[GENERAL DEBUG] 💬 질문: "${userInput}"`);
     console.log(`[GENERAL DEBUG] 📎 첨부파일 수: ${attachments.length}`);
     
-    if (!openai) {
-        console.log(`[GENERAL DEBUG] ⚠️ OpenAI 클라이언트 없음 - 기본 응답 반환`);
+    let openai;
+    try {
+        openai = getOpenAIClient();
+    } catch (error) {
+        console.log(`[GENERAL DEBUG] ⚠️ OpenAI 클라이언트 초기화 실패:`, error.message);
         return `죄송합니다. 현재 OpenAI API 키가 설정되지 않아 일반 질문에 답변할 수 없습니다.\n\n다음 기능들은 여전히 사용 가능합니다:\n- 일정 관리 (/myschedule)\n- 이미지 생성 (/image)\n- 문서 분석 (PDF/Word 업로드)\n- 메모리 관리`;
     }
     

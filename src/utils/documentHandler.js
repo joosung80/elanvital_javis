@@ -10,19 +10,8 @@ const mammoth = require('mammoth');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
-const OpenAI = require('openai');
 const { saveDocumentsToMemory } = require('./memoryHandler');
-
-// OpenAI 클라이언트 초기화 (API 키가 있는 경우에만)
-let openai = null;
-if (process.env.OPENAI_API_KEY) {
-  openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-  console.log('[DOCUMENT] ✅ OpenAI 클라이언트 초기화 완료');
-} else {
-  console.log('[DOCUMENT] ⚠️ OpenAI API 키 없음 - 요약 기능 비활성화');
-}
+const { getOpenAIClient } = require('./openaiClient');
 
 /**
  * URL에서 파일을 다운로드하여 Buffer로 반환
@@ -339,8 +328,11 @@ async function parseMultipleDocuments(attachments) {
 async function summarizeDocument(text, filename, summaryType = 'detailed') {
     console.log(`[DOCUMENT SUMMARY] 📝 문서 요약 시작: ${filename} (${summaryType})`);
     
-    if (!openai) {
-        console.log(`[DOCUMENT SUMMARY] ⚠️ OpenAI 클라이언트 없음 - 기본 요약 반환`);
+    let openai;
+    try {
+        openai = getOpenAIClient();
+    } catch (error) {
+        console.log(`[DOCUMENT SUMMARY] ⚠️ OpenAI 클라이언트 초기화 실패 - 기본 요약 반환:`, error.message);
         const lines = text.split('\n').filter(line => line.trim().length > 0);
         return `**기본 요약 (OpenAI 없음)**\n\n파일명: ${filename}\n단어 수: ${text.split(/\s+/).length}개\n첫 부분: ${lines.slice(0, 5).join(' ').substring(0, 300)}...`;
     }
