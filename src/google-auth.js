@@ -6,10 +6,11 @@ const {google} = require('googleapis');
 
 // If modifying these scopes, delete token.json.
 const SCOPES = [
-  'https://www.googleapis.com/auth/calendar',           // 구글 캘린더 권한
-  'https://www.googleapis.com/auth/tasks',              // 구글 Tasks 권한
-  'https://www.googleapis.com/auth/documents.readonly', // 구글 Docs 읽기 전용 권한
-  'https://www.googleapis.com/auth/spreadsheets'        // 구글 Sheets 권한
+    'https://www.googleapis.com/auth/calendar',           // 구글 캘린더 권한
+    'https://www.googleapis.com/auth/tasks',              // 구글 Tasks 권한
+    'https://www.googleapis.com/auth/documents.readonly', // 구글 Docs 읽기 전용 권한
+    'https://www.googleapis.com/auth/spreadsheets',       // 구글 Sheets 권한
+    'https://www.googleapis.com/auth/drive.readonly'      // 구글 Drive 읽기 전용 권한 (Google Docs 검색용)
 ];
 
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');
@@ -83,4 +84,22 @@ async function authorize() {
   }
 }
 
-module.exports = { authorize };
+/**
+ * 인증된 Google API 객체를 반환합니다.
+ * @returns {Promise<object>} 인증된 google 객체
+ */
+async function getAuthenticatedGoogleApis() {
+    const auth = await authorize();
+    return {
+        auth,
+        drive: google.drive({ version: 'v3', auth }),
+        docs: google.docs({ version: 'v1', auth }),
+        tasks: google.tasks({ version: 'v1', auth }),
+        calendar: google.calendar({ version: 'v3', auth })
+    };
+}
+
+module.exports = {
+    authorize,
+    getAuthenticatedGoogleApis
+};

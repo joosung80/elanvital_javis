@@ -6,11 +6,18 @@ const { processImageGeneration } = require('../utils/imageHandler');
 const { splitMessageForMobile } = require('../utils/messageUtils');
 const { processGeneralQuestion } = require('../utils/generalHandler');
 const { handleDocumentRequest, handleGoogleDocsRequest, handleGoogleDocsSearchRequest } = require('../utils/documentHandler');
+const { searchGoogleDocs, formatDocsSearchResults } = require('../utils/docsHandler');
 const { addTask, addMultipleTasks, listTasks, cacheTasksForCompletion, searchAndCacheTasks, parseMultipleTasks } = require('../utils/taskHandler');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
+// 세션 저장소 (메모리 기반)
+const taskSessions = new Map();
+const docsSearchSessions = new Map();
+
 async function handleMessageCreate(message) {
   if (message.author.bot || message.content.startsWith('/')) return;
+
+  console.log(`[MESSAGE] 💬 수신 메시지: "${message.content}" (${message.author.username})`);
 
   try {
     let actualContent = message.content;
@@ -55,6 +62,9 @@ async function handleMessageCreate(message) {
             const searchKeyword = classification.extractedInfo?.searchKeyword || '';
             botResponse = await handleGoogleDocsSearchRequest(documentAlias, searchKeyword, message.author.id);
             await message.reply(botResponse);
+          } else if (classification.documentType === 'google_docs_keyword_search') {
+            const searchKeyword = classification.extractedInfo?.searchKeyword || '';
+            botResponse = await handleGoogleDocsKeywordSearchRequest(message, searchKeyword);
           } else {
             botResponse = await handleDocumentRequest(message, classification, actualContent);
           }
@@ -340,9 +350,102 @@ async function handleGeneralRequest(message, classification) {
 
 async function handleMemoryRequest(message, classification) {
     const result = clearUserMemory(message.author.id);
-    const successMessage = `🧠 **메모리 정리 완료!**...`; // Full message
+    const successMessage = `🧠 **메모리 정리 완료!**
+
+✅ **정리된 내용:**
+- 대화 기록 삭제
+- 문서 컨텍스트 초기화  
+- 이미지 분석 기록 삭제
+- 일정 관련 임시 데이터 정리
+
+💡 **새로운 대화를 시작할 수 있습니다!**
+이전 대화 내용은 더 이상 참조되지 않으며, 깨끗한 상태에서 대화를 계속할 수 있습니다.`;
+    
     await message.reply(result.success ? successMessage : result.message);
     return result.message;
 }
 
-module.exports = { handleMessageCreate };
+
+/**
+ * Google Docs 키워드 검색 요청을 처리합니다.
+ * @param {Object} message - Discord 메시지 객체
+ * @param {string} searchKeyword - 검색 키워드
+ * @returns {Promise<string>} 처리 결과 메시지
+ */
+async function handleGoogleDocsKeywordSearchRequest(message, searchKeyword) {
+    try {
+        console.log(`[DOCS KEYWORD SEARCH] 🔍 사용자 ${message.author.tag}가 '${searchKeyword}' 검색 요청`);
+        
+        if (!searchKeyword.trim()) {
+            await message.reply('❌ **검색 키워드가 필요합니다!**\n\n예: "독스에서 보고서 찾아줘"');
+            return '검색 키워드 없음';
+        }
+        
+        // Google Docs에서 문서 검색
+        const docs = await searchGoogleDocs(searchKeyword, 5);
+        
+        if (docs.length === 0) {
+            const noResultMessage = `🔍 **Google Docs 검색 결과**\n\n**검색어:** "${searchKeyword}"\n\n검색 결과가 없습니다.`;
+            await message.reply(noResultMessage);
+            return noResultMessage;
+        }
+        
+        // 검색 결과 포맷팅
+        const resultMessage = formatDocsSearchResults(searchKeyword, docs);
+        
+        // 문서 선택 버튼 생성
+        const buttons = [];
+        for (let i = 0; i < Math.min(docs.length, 5); i++) {
+            buttons.push(
+                new ButtonBuilder()
+                    .setCustomId(`select_doc_${i}`)
+                    .setLabel(`${i + 1}번 문서 읽기`)
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('📖')
+            );
+        }
+        
+        // 버튼을 5개씩 나누어 ActionRow 생성
+        const actionRows = [];
+        for (let i = 0; i < buttons.length; i += 5) {
+            const row = new ActionRowBuilder()
+                .addComponents(buttons.slice(i, i + 5));
+            actionRows.push(row);
+        }
+        
+        // 세션에 문서 정보 저장
+        const sessionId = `${message.author.id}_${Date.now()}`;
+        docsSearchSessions.set(sessionId, {
+            docs: docs,
+            userId: message.author.id,
+            keyword: searchKeyword,
+            timestamp: Date.now()
+        });
+        
+        // 버튼 customId에 세션 ID 포함하도록 업데이트
+        actionRows.forEach((row, rowIndex) => {
+            row.components.forEach((button, buttonIndex) => {
+                const docIndex = rowIndex * 5 + buttonIndex;
+                button.setCustomId(`select_doc_${sessionId}_${docIndex}`);
+            });
+        });
+        
+        await message.reply({
+            content: resultMessage,
+            components: actionRows
+        });
+        
+        return resultMessage;
+        
+    } catch (error) {
+        console.error(`[DOCS KEYWORD SEARCH] ❌ 검색 실패:`, error);
+        const errorMessage = `❌ **Google Docs 검색 실패**\n\n${error.message}\n\n💡 Google Docs 권한을 확인하거나 잠시 후 다시 시도해주세요.`;
+        await message.reply(errorMessage);
+        return errorMessage;
+    }
+}
+
+module.exports = { 
+    handleMessageCreate,
+    docsSearchSessions   // 인터랙션 핸들러에서 사용하기 위해 export
+};

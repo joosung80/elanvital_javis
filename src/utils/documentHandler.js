@@ -584,6 +584,11 @@ async function handleGoogleDocsSearchRequest(documentAlias, searchKeyword, userI
     try {
         console.log(`[GOOGLE DOCS SEARCH] 🔍 문서 '${documentAlias}'에서 '${searchKeyword}' 검색 요청`);
         
+        // documentAlias가 비어있으면 오류 반환
+        if (!documentAlias || !documentAlias.trim()) {
+            return `❌ **Google Docs 검색 실패**\n\n문서 별칭이 지정되지 않았습니다.\n\n💡 올바른 형식: "패스워드 문서에서 gmail 찾아줘"`;
+        }
+        
         const searchResult = await searchKeywordInDocument(documentAlias, searchKeyword);
         
         if (searchResult.totalMatches === 0) {
