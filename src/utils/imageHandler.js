@@ -3,7 +3,9 @@ const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
 const { 
   getCurrentContext, 
-  getRecentConversations 
+  getRecentConversations,
+  getUserMemory,
+  saveImageContext
 } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
 
@@ -160,7 +162,23 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
  * @param {string} userId - 사용자 ID (컨텍스트용)
  * @returns {Object} 결과 객체 { success, embed?, files?, textResponse? }
  */
-async function processImageGeneration(prompt, imageUrl = null, imageMimeType = null, requesterTag, requesterAvatarURL, source = null, userId = null) {
+async function handleImageRequest(message) {
+    const prompt = message.content;
+    const attachments = Array.from(message.attachments.values());
+    const userId = message.author.id;
+    const memory = getUserMemory(userId);
+
+    let imageUrl = attachments.length > 0 ? attachments[0].url : memory.lastImageUrl;
+    let imageMimeType = attachments.length > 0 ? attachments[0].contentType : memory.lastImageMimeType;
+
+    // 새 이미지가 업로드되면 메모리에 저장
+    if (attachments.length > 0) {
+        saveImageContext(userId, imageUrl, imageMimeType);
+    }
+
+    const requesterTag = message.author.tag;
+    const requesterAvatarURL = message.author.displayAvatarURL();
+
     console.log(`[IMAGE HANDLER] 🎨 이미지 처리 핸들러 시작`);
     console.log(`[IMAGE HANDLER] 📝 프롬프트: "${prompt}"`);
     console.log(`[IMAGE HANDLER] 🖼️ 이미지 URL: ${imageUrl || 'null'}`);
@@ -170,22 +188,14 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
     try {
         if (!prompt || prompt.trim() === '') {
             console.log(`[IMAGE HANDLER] ❌ 빈 프롬프트 감지`);
-            return {
-                success: false,
-                textResponse: "프롬프트를 입력해주세요."
-            };
+            await message.reply("프롬프트를 입력해주세요.");
+            return "프롬프트를 입력해주세요.";
         }
 
         // Discord 피드백 전송 헬퍼 함수
         const sendFeedback = async (content) => {
-            if (!source) return;
             try {
-                // isCommandInteraction() 또는 유사한 메서드로 인터랙션인지 확인
-                if (source.isCommand && source.isCommand()) {
-                    await source.followUp(content);
-                } else {
-                    await source.channel.send(content);
-                }
+                await message.channel.send(content);
             } catch (error) {
                 console.error(`[IMAGE HANDLER] ❌ Discord 피드백 전송 실패:`, error);
             }
@@ -195,18 +205,11 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
         const isImageEdit = !!(imageUrl && imageMimeType);
         
         // Discord 피드백: 프롬프트 보강 시작
-        if (source) {
-            try {
-                const initialMessage = '🔧 **프롬프트를 보강하고 있습니다...** ChatGPT가 더 나은 결과를 위해 프롬프트를 개선중입니다.';
-                if (source.isCommand && source.isCommand()) {
-                    // deferReply에 대한 첫 응답은 editReply로 해야 합니다.
-                    await source.editReply(initialMessage);
-                } else {
-                    await source.reply(initialMessage);
-                }
-            } catch (error) {
-                console.error(`[IMAGE HANDLER] ❌ Discord 피드백 전송 실패:`, error);
-            }
+        try {
+            const initialMessage = '🔧 **프롬프트를 보강하고 있습니다...** ChatGPT가 더 나은 결과를 위해 프롬프트를 개선중입니다.';
+            await message.reply(initialMessage);
+        } catch (error) {
+            console.error(`[IMAGE HANDLER] ❌ Discord 피드백 전송 실패:`, error);
         }
         
         const enhancedPrompt = await enhancePromptWithChatGPT(prompt, isImageEdit, userId);
@@ -233,10 +236,8 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
                 ];
             } catch (imageError) {
                 console.error(`[IMAGE HANDLER] ❌ 이미지 처리 오류:`, imageError);
-                return {
-                    success: false,
-                    textResponse: "이미지를 처리할 수 없습니다. 다른 이미지를 시도해보세요."
-                };
+                await message.reply("이미지를 처리할 수 없습니다. 다른 이미지를 시도해보세요.");
+                return "이미지를 처리할 수 없습니다. 다른 이미지를 시도해보세요.";
             }
         } else {
             // 텍스트만으로 이미지 생성
@@ -269,6 +270,7 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
         if (firstCandidate && firstCandidate.content && firstCandidate.content.parts) {
             console.log(`[IMAGE HANDLER] 🔍 응답 파트 수: ${firstCandidate.content.parts.length}`);
             
+            let resultSent = false;
             for (const part of firstCandidate.content.parts) {
                 if (part.inlineData && part.inlineData.data) {
                     console.log(`[IMAGE HANDLER] 🖼️ 이미지 데이터 발견! (Base64 길이: ${part.inlineData.data.length})`);
@@ -292,11 +294,12 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
                     }
 
                     console.log(`[IMAGE HANDLER] 🎉 이미지 처리 성공!`);
-                    return {
-                        success: true,
-                        embed,
-                        files: [imageAttachment]
-                    };
+                    
+                    await message.reply({ embeds: [embed], files: [imageAttachment] });
+                    resultSent = true;
+                    
+                    // 이미지 생성 성공 시, 원본 프롬프트와 보강된 프롬프트를 함께 반환하여 대화 기록
+                    return `Original Prompt: "${prompt}"\nEnhanced Prompt: "${enhancedPrompt}"`;
                 } else if (part.text) {
                     console.log(`[IMAGE HANDLER] 📝 텍스트 파트 발견: "${part.text.substring(0, 100)}..."`);
                 }
@@ -315,25 +318,23 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
             console.log(`[IMAGE HANDLER] 📝 대체 텍스트 응답: "${textResponse.substring(0, 100)}..."`);
         }
 
-        console.log(`[IMAGE HANDLER] ❌ 이미지 생성 실패`);
-        return {
-            success: false,
-            textResponse: textResponse || "이미지를 생성할 수 없습니다."
-        };
+        const fallbackResponse = textResponse || "죄송합니다, 이미지를 생성할 수 없습니다.";
+        await message.reply(fallbackResponse);
+        return fallbackResponse;
 
     } catch (error) {
         console.error(`[IMAGE HANDLER] 💥 예외 발생:`, error);
         console.error(`[IMAGE HANDLER] 💥 스택 트레이스:`, error.stack);
-        return {
-            success: false,
-            error: error.message,
-            textResponse: "이미지 처리 중 오류가 발생했습니다."
-        };
+        
+        // 오류 응답 전송
+        await message.reply("이미지 처리 중 오류가 발생했습니다.");
+
+        return "이미지 처리 중 오류가 발생했습니다.";
     }
 }
 
 module.exports = {
-    processImageGeneration,
+    handleImageRequest,
     urlToGenerativePart,
     enhancePromptWithChatGPT
 };

@@ -1,5 +1,5 @@
 const { google } = require('googleapis');
-const { authorize } = require('../google-auth');
+const { authorize, getAuthenticatedGoogleApis } = require('../google-auth');
 const { v4: uuidv4 } = require('uuid');
 const { calculateMatchScore } = require('./similarityUtils');
 
@@ -293,6 +293,126 @@ async function addTask(title) {
     return response.data;
 }
 
+async function handleTaskRequest(message, classification) {
+    switch (classification.taskType) {
+        case 'add':
+            try {
+                const content = classification.extractedInfo.content;
+                if (!content) {
+                    await message.reply("추가할 할 일 내용이 없습니다. 다시 시도해주세요.");
+                    return "할 일 내용 없음";
+                }
+
+                // 단일/복수 할 일을 모두 처리할 수 있는 파서 사용
+                const tasksToAdd = parseMultipleTasks(content);
+                
+                if (tasksToAdd.length === 0) {
+                    await message.reply("추가할 할 일을 찾지 못했습니다. `할일:` 다음이나 줄바꿈을 사용하여 할 일을 입력해주세요.");
+                    return "추가할 할 일 없음";
+                }
+
+                const { createdTasks, errors } = await addMultipleTasks(tasksToAdd);
+
+                let reply = "";
+                if (createdTasks.length > 0) {
+                    reply += `✅ **${createdTasks.length}개**의 할 일을 성공적으로 추가했습니다:\n`;
+                    createdTasks.forEach(task => {
+                        reply += `- ${task.title}\n`;
+                    });
+                }
+                if (errors.length > 0) {
+                    reply += `\n❌ **${errors.length}개**의 할 일 추가에 실패했습니다.`;
+                }
+
+                await message.reply(reply);
+                return reply;
+
+            } catch (error) {
+                console.error('Google Tasks 할 일 추가 오류:', error);
+                await message.reply("Google Tasks에 할 일을 추가하는 중 오류가 발생했습니다.");
+                return "Google Tasks API 오류";
+            }
+        case 'query':
+            return await executeTaskList(message);
+        case 'complete':
+            // 여기에 할 일 완료 로직 구현
+            break;
+        default:
+            return "알 수 없는 할 일 요청입니다.";
+    }
+}
+
+
+/**
+ * Google Tasks API를 사용하여 할 일 목록을 가져와 Discord에 표시
+ * @param {object} message - Discord 메시지 객체
+ */
+async function executeTaskList(message) {
+    try {
+        const { tasks } = await getAuthenticatedGoogleApis();
+        const taskLists = await tasks.tasklists.list({ maxResults: 10 });
+
+        if (!taskLists.data.items || taskLists.data.items.length === 0) {
+            await message.reply("해당 Google 계정에 할 일 목록이 없습니다.");
+            return;
+        }
+
+        const taskListId = taskLists.data.items[0].id;
+        const result = await tasks.tasks.list({
+            tasklist: taskListId,
+            maxResults: 20,
+            showCompleted: false,
+        });
+
+        const taskItems = result.data.items;
+        if (!taskItems || taskItems.length === 0) {
+            await message.reply("현재 활성 할 일이 없습니다. 모든 일을 마치셨군요! 🎉");
+            return "현재 활성 할 일이 없습니다.";
+        }
+
+        let reply = "📝 **현재 할 일 목록입니다!**\n\n";
+        taskItems.forEach((task, index) => {
+            reply += `${index + 1}. ${task.title}\n`;
+        });
+
+        await message.reply(reply);
+        return reply;
+
+    } catch (error) {
+        console.error('Google Tasks API 오류:', error);
+        await message.reply("Google Tasks API에서 할 일 목록을 가져오는 중 오류가 발생했습니다.");
+        return "Google Tasks API 오류";
+    }
+}
+
+
+/**
+ * Google Tasks API를 사용하여 할 일을 완료 처리
+ * @param {string} sessionId - 현재 세션 ID
+ * @param {number} taskIndex - 완료할 할 일의 인덱스
+ * @returns {Promise<{success: boolean, message: string, task: object}>}
+ */
+async function executeTaskComplete(sessionId, taskIndex) {
+    const tasks = taskSessions.get(sessionId);
+    if (!tasks) {
+        return { success: false, message: '세션이 만료되었거나 유효하지 않습니다. 다시 목록을 조회해주세요.' };
+    }
+
+    if (taskIndex < 0 || taskIndex >= tasks.length) {
+        return { success: false, message: '잘못된 번호를 선택했습니다.' };
+    }
+
+    const taskToComplete = tasks[taskIndex];
+    try {
+        const completed = await completeTask(taskToComplete.id, taskToComplete.tasklistId);
+        taskSessions.delete(sessionId); // Clear session after successful completion
+        return { success: true, message: `✅ **'${taskToComplete.title}'** 할 일을 완료처리 했습니다.`, task: completed };
+    } catch (error) {
+        console.error('Error executing task completion:', error);
+        return { success: false, message: '❌ 할 일 완료 처리에 실패했습니다.' };
+    }
+}
+
 module.exports = {
     listTasks,
     addTask,
@@ -302,4 +422,5 @@ module.exports = {
     executeTaskComplete,
     searchAndCacheTasks,
     parseMultipleTasks,
+    handleTaskRequest,
 };

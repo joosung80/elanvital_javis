@@ -1497,6 +1497,59 @@ async function processNaturalSchedule(text, classification) {
     }
 }
 
+/**
+ * 메시지 객체와 분류 결과를 기반으로 적절한 스케줄 관련 함수를 호출하는 메인 핸들러
+ * @param {Message} message - Discord 메시지 객체
+ * @param {Object} classification - 분류기에서 반환된 분류 정보
+ * @returns {Promise<string|Object>} 처리 결과 메시지 또는 객체
+ */
+async function handleScheduleRequest(message, classification) {
+    const { scheduleType, extractedInfo } = classification;
+    const userInput = message.content;
+
+    console.log(`[SCHEDULE HANDLER] 🚀 스케줄 요청 처리 시작: 타입 '${scheduleType}'`);
+
+    try {
+        let result;
+        switch (scheduleType) {
+            case 'query':
+                const period = extractedInfo.period || '오늘';
+                result = await getInteractiveSchedule(period, message.author.id);
+                if (result.success) {
+                    await message.reply({ content: result.message, components: result.components || [] });
+                    return result.message;
+                } else {
+                    await message.reply(result.message);
+                    return result.message;
+                }
+            case 'add':
+                result = await addScheduleEvent(userInput);
+                 await message.reply(result.message);
+                return result.message;
+            case 'delete':
+                result = await deleteScheduleEvent(userInput, message.author.id);
+                if (result.success) {
+                    await message.reply({ content: result.message, components: result.components || [] });
+                    return result.message;
+                } else {
+                    await message.reply(result.message);
+                    return result.message;
+                }
+            default:
+                // 혹시 모를 예외 처리: scheduleType이 없으면 Gemini 파싱 시도
+                console.log(`[SCHEDULE HANDLER] ⚠️ scheduleType이 지정되지 않았습니다. 자연어 처리 시도.`);
+                result = await addScheduleEvent(userInput);
+                await message.reply(result.message);
+                return result.message;
+        }
+    } catch (error) {
+        console.error(`[SCHEDULE HANDLER] ❌ 요청 처리 중 심각한 오류 발생:`, error);
+        await message.reply('죄송합니다. 일정 처리 중 오류가 발생했습니다.');
+        return '일정 처리 오류';
+    }
+}
+
+
 module.exports = {
     parseEventWithGemini,
     getTimeRangeFromPeriod,
@@ -1515,5 +1568,6 @@ module.exports = {
     saveDeleteSession,
     getDeleteSession,
     saveScheduleSession,
-    getScheduleSession
+    getScheduleSession,
+    handleScheduleRequest,
 };

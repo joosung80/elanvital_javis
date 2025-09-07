@@ -13,6 +13,9 @@ const { URL } = require('url');
 const { saveDocumentsToMemory } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
 const { readDocumentByAlias, searchAndReadDocuments, searchKeywordInDocument } = require('./docsHandler');
+const { getUserMemory } = require('../utils/memoryHandler');
+const { searchGoogleDocs, formatDocsSearchResults } = require('./docsHandler');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 /**
  * URL에서 파일을 다운로드하여 Buffer로 반환
@@ -490,8 +493,9 @@ async function handleDocumentRequest(message, classification, actualContent = nu
     
     await processingMessage.edit(summaryMessage);
     
+    const successfulDocs = documentContexts.filter(doc => !doc.error);
     if (successfulDocs.length > 0) {
-      saveDocumentsToMemory(message.author.id, documentContexts);
+      await saveDocumentsToMemory(message.author.id, successfulDocs);
       console.log(`[DOCUMENT] 💾 ${successfulDocs.length}개 문서가 메모리에 저장됨`);
     }
     
@@ -530,7 +534,7 @@ async function handleGoogleDocsRequest(keyword, userId) {
         const { title, content, wordCount, characterCount, aliasName, description } = result;
         
         // 메모리에 문서 저장
-        const documentData = {
+        const documentContext = {
             filename: `${aliasName || title}.gdocs`,
             content: content,
             summary: content.length > 1000 ? content.substring(0, 1000) + '...' : content,
@@ -545,7 +549,7 @@ async function handleGoogleDocsRequest(keyword, userId) {
             }
         };
         
-        saveDocumentsToMemory(userId, [documentData]);
+        saveDocumentsToMemory(userId, documentContext);
         
         // 응답 메시지 생성
         let responseMessage = `📄 **Google Docs 문서를 읽어왔습니다!**\n\n`;
@@ -632,6 +636,123 @@ async function handleGoogleDocsSearchRequest(documentAlias, searchKeyword, userI
     }
 }
 
+/**
+ * Google Docs 키워드 검색 요청을 처리합니다. (이 함수는 messageHandler에서 이곳으로 이동했습니다)
+ * @param {object} message - Discord 메시지 객체
+ * @param {string} searchKeyword - 검색 키워드
+ * @param {Map} docsSearchSessions - 세션 저장을 위한 Map 객체
+ * @returns {Promise<string>} 처리 결과 메시지
+ */
+async function handleGoogleDocsKeywordSearchRequest(message, searchKeyword, docsSearchSessions) {
+    try {
+        console.log(`[DOCS KEYWORD SEARCH] 🔍 사용자 ${message.author.tag}가 '${searchKeyword}' 검색 요청`);
+        
+        if (!searchKeyword.trim()) {
+            await message.reply('❌ **검색 키워드가 필요합니다!**\n\n예: "독스에서 보고서 찾아줘"');
+            return '검색 키워드 없음';
+        }
+        
+        const docs = await searchGoogleDocs(searchKeyword, 5);
+        
+        if (docs.length === 0) {
+            const noResultMessage = `🔍 **Google Docs 검색 결과**\n\n**검색어:** "${searchKeyword}"\n\n검색 결과가 없습니다.`;
+            await message.reply(noResultMessage);
+            return noResultMessage;
+        }
+        
+        const resultMessage = formatDocsSearchResults(searchKeyword, docs);
+        
+        const sessionId = `${message.author.id}_${Date.now()}`;
+        docsSearchSessions.set(sessionId, {
+            docs: docs,
+            userId: message.author.id,
+            keyword: searchKeyword,
+            timestamp: Date.now()
+        });
+
+        const buttons = docs.map((doc, i) =>
+            new ButtonBuilder()
+                .setCustomId(`select_doc_${sessionId}_${i}`)
+                .setLabel(`${i + 1}번 문서 읽기`)
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('📖')
+        );
+        
+        const actionRows = [];
+        for (let i = 0; i < buttons.length; i += 5) {
+            actionRows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
+        }
+        
+        await message.reply({
+            content: resultMessage,
+            components: actionRows
+        });
+        
+        return resultMessage;
+        
+    } catch (error) {
+        console.error(`[DOCS KEYWORD SEARCH] ❌ 검색 실패:`, error);
+        const errorMessage = `❌ **Google Docs 검색 실패**\n\n${error.message}\n\n💡 Google Docs 권한을 확인하거나 잠시 후 다시 시도해주세요.`;
+        await message.reply(errorMessage);
+        return errorMessage;
+    }
+}
+
+/**
+ * 문서 요약 요청을 처리합니다.
+ * @param {object} message - Discord 메시지 객체
+ */
+async function handleDocumentSummarizationRequest(message) {
+    const userId = message.author.id;
+    const memory = getUserMemory(userId);
+
+    if (!memory.lastDocuments || memory.lastDocuments.length === 0) {
+        await message.reply('❌ 요약할 문서가 컨텍스트에 없습니다. 먼저 문서를 읽어주세요.');
+        return;
+    }
+
+    const lastDocument = memory.lastDocuments[0];
+    
+    try {
+        await message.channel.sendTyping();
+        const openai = getOpenAIClient();
+        const systemPrompt = "You are a helpful assistant who summarizes documents. Summarize the following document content concisely, in Korean, focusing on the key points.";
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Please summarize the following document:\n\nTitle: ${lastDocument.title}\n\nContent:\n${lastDocument.content}` }
+            ],
+            temperature: 0.5,
+        });
+
+        const summary = response.choices[0].message.content;
+        const replyMessage = `📝 **'${lastDocument.title}' 문서 요약**\n\n${summary}`;
+        await message.reply(replyMessage);
+
+    } catch (error) {
+        console.error(`[DOC SUMMARIZE] ❌ 문서 요약 중 오류 발생:`, error);
+        await message.reply('❌ 문서 요약을 처리하는 중 오류가 발생했습니다.');
+    }
+}
+
+
+/**
+ * 날짜를 'YYYY년 MM월 DD일 HH:mm' 형식으로 포맷팅합니다.
+ * @param {string} dateString - ISO 8601 형식의 날짜 문자열
+ */
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
 module.exports = {
     parseDocument,
     parseMultipleDocuments,
@@ -640,5 +761,7 @@ module.exports = {
     summarizeDocument,
     handleDocumentRequest,
     handleGoogleDocsRequest,
-    handleGoogleDocsSearchRequest // 새로 추가된 export
+    handleGoogleDocsSearchRequest, // 새로 추가된 export
+    handleGoogleDocsKeywordSearchRequest,
+    handleDocumentSummarizationRequest
 };

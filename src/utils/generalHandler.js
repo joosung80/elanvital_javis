@@ -1,5 +1,5 @@
 const fetch = require('node-fetch');
-const { getRecentDocuments, getCurrentContext } = require('./memoryHandler');
+const { getUserMemory } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
 
 /**
@@ -68,7 +68,11 @@ async function downloadFileContent(url, contentType) {
  * @param {string} userId - 사용자 ID
  * @returns {Object} 처리 결과
  */
-async function processGeneralQuestion(userInput, attachments = [], userId) {
+async function handleGeneralRequest(message) {
+    const userInput = message.content;
+    const attachments = Array.from(message.attachments.values());
+    const userId = message.author.id;
+
     console.log(`[GENERAL DEBUG] 🤖 일반 질문 처리 시작`);
     console.log(`[GENERAL DEBUG] 👤 사용자 ID: ${userId}`);
     console.log(`[GENERAL DEBUG] 💬 질문: "${userInput}"`);
@@ -79,13 +83,15 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
         openai = getOpenAIClient();
     } catch (error) {
         console.log(`[GENERAL DEBUG] ⚠️ OpenAI 클라이언트 초기화 실패:`, error.message);
-        return `죄송합니다. 현재 OpenAI API 키가 설정되지 않아 일반 질문에 답변할 수 없습니다.\n\n다음 기능들은 여전히 사용 가능합니다:\n- 일정 관리 (/myschedule)\n- 이미지 생성 (/image)\n- 문서 분석 (PDF/Word 업로드)\n- 메모리 관리`;
+        const errorMessage = '죄송합니다. 현재 OpenAI API 키가 설정되지 않아 일반 질문에 답변할 수 없습니다.\n\n다음 기능들은 여전히 사용 가능합니다:\n- 일정 관리 (/myschedule)\n- 이미지 생성 (/image)\n- 문서 분석 (PDF/Word 업로드)\n- 메모리 관리';
+        await message.channel.send(errorMessage);
+        return errorMessage;
     }
     
     try {
         // 문서 컨텍스트 가져오기
-        const recentDocuments = getRecentDocuments(userId, 3);
-        const currentContext = getCurrentContext(userId);
+        const memory = getUserMemory(userId);
+        const recentDocuments = memory.recentDocuments || [];
         
         console.log(`[GENERAL DEBUG] 📄 최근 문서 ${recentDocuments.length}개 로드됨`);
         
@@ -198,11 +204,11 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
         console.log(`[GENERAL DEBUG] 📤 ${messageChunks.length}개 메시지로 분할`);
         console.log(`[GENERAL DEBUG] ✅ 일반 질문 처리 완료`);
         
-        return {
-            success: true,
-            messageChunks: messageChunks,
-            originalResponse: aiResponse
-        };
+        // 최종 응답 전송
+        for (const chunk of messageChunks) {
+            await message.channel.send(chunk);
+        }
+        return aiResponse; // 대화 기록을 위해 원본 응답 반환
         
     } catch (error) {
         console.error(`[GENERAL DEBUG] ❌ 일반 질문 처리 오류:`, error);
@@ -217,15 +223,12 @@ async function processGeneralQuestion(userInput, attachments = [], userId) {
             errorMessage = 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.';
         }
         
-        return {
-            success: false,
-            error: error.message,
-            messageChunks: [errorMessage]
-        };
+        await message.channel.send(errorMessage);
+        return errorMessage; // 대화 기록을 위해 오류 메시지 반환
     }
 }
 
 module.exports = {
-    processGeneralQuestion,
+    handleGeneralRequest,
     splitMessageForMobile
 };

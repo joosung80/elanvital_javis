@@ -1,8 +1,5 @@
-const { 
-  getCurrentContext, 
-  getRecentConversations 
-} = require('./utils/memoryHandler');
 const { getOpenAIClient } = require('./utils/openaiClient');
+const { getCurrentContext, getRecentConversations, formatContentForLogging } = require('./utils/memoryHandler');
 
 // 사용자 세션 저장소 (실제 프로덕션에서는 데이터베이스 사용)
 const userSessions = new Map();
@@ -42,7 +39,22 @@ async function classifyUserInput(content, attachments = [], userId) {
     const recentConversations = getRecentConversations(userId, 3);
     
     console.log(`[CLASSIFIER] 🧠 메모리 컨텍스트 로드:`);
-    console.log(`[CLASSIFIER] 📋 현재 컨텍스트:`, currentContext);
+    // 디버깅을 위해 컨텍스트 내용을 축약하여 표시
+    const contextForLog = { ...currentContext };
+    if (contextForLog.lastDocuments && contextForLog.lastDocuments.length > 0) {
+        contextForLog.lastDocuments = contextForLog.lastDocuments.map(doc => ({
+            ...doc,
+            content: formatContentForLogging(doc.content)
+        }));
+    }
+    if (contextForLog.recentDocuments && contextForLog.recentDocuments.length > 0) {
+        contextForLog.recentDocuments = contextForLog.recentDocuments.map(doc => ({
+            ...doc,
+            content: formatContentForLogging(doc.content)
+        }));
+    }
+
+    console.log(`[CLASSIFIER] 📋 현재 컨텍스트:`, contextForLog);
     console.log(`[CLASSIFIER] 💬 최근 대화 ${recentConversations.length}개`);
     
     // 사용자 세션 정보 저장
@@ -83,14 +95,20 @@ async function classifyUserInput(content, attachments = [], userId) {
 2. SCHEDULE - 스케줄 관리 기능
    - 일정 추가, 조회, 삭제 관련
    - 시간, 날짜 관련 표현 포함
-   - 예: "내일 9시에 만남", "오늘 일정 알려줘", "이번주 스케줄"
+   - 예: "내일 9시에 만남", "오늘 일정 알려줘", "이번주 스케줄", "담주 일정", "다음 주 일정"
    
    스케줄 타입별 처리:
-   - query (조회): "오늘/내일/이번주/다음주 일정 알려줘" → period 추출
+   - query (조회): "오늘/내일/이번주/다음주 일정 알려줘", "담주 일정", "다음 주 일정", "지난주 일정" 등 일정 조회를 요청하는 모든 표현. 서술어 없이 기간만 명시해도 조회로 간주합니다. period(기간)을 추출해야 함.
    - add (추가): "내일 6시에 영준이와 저녁식사" → 전체 텍스트 보존 (LLM이 시간과 내용을 모두 파싱)
    - delete (삭제): "오늘 회의 취소해줘" → 삭제 대상 추출
    
-   중요: 일정 추가시 시간 정보와 내용을 분리하지 말고 원본 텍스트를 그대로 전달하여 
+   period 추출 규칙:
+   - "다음주 일정", "담주 일정" → "다음주"
+   - "지난주 일정" → "지난주"
+   - "오늘 뭐해?" → "오늘"
+   - "이번주 스케줄" → "이번주"
+
+   중요: 일정 추가시 시간 정보와 내용을 분리하지 말고 원본 text를 그대로 전달하여
    Gemini가 정확한 날짜 계산과 시간 파싱을 수행하도록 합니다.
 
 3. IMAGE - 이미지 생성 기능  
@@ -210,7 +228,7 @@ DOCUMENT 카테고리인 경우:
     "category": "DOCUMENT",
     "confidence": 0.95,
     "reason": "분류 이유 설명",
-    "documentType": "upload|google_docs|google_docs_search|google_docs_keyword_search",
+    "documentType": "upload|google_docs|google_docs_search|google_docs_keyword_search|summarize_document",
     "extractedInfo": {
         "keyword": "Google Docs 읽기 요청 시 문서 별칭을 추출합니다. 예: '패스워드 문서 열어줘' → '패스워드'. 업로드의 경우 빈 문자열입니다.",
         "searchKeyword": "Google Docs 검색 또는 Google Docs 키워드 검색 요청 시 검색할 키워드를 추출합니다. 예: '패스워드 문서에서 gmail 찾아줘' → 'gmail', '독스에서 보고서 찾아줘' → '보고서', '구글 독스에서 패스워드 문서 검색해줘' → '패스워드', '구글 독스에서 해커스 문서 찾아줘' → '해커스'. 명령어('찾아줘', '검색해줘', '문서' 등)는 제외하고 핵심 키워드만 추출합니다. 검색이 아닌 경우 빈 문자열입니다.",
@@ -231,8 +249,9 @@ Google Docs 키워드 검색 시 키워드 추출 규칙:
 - 반드시 실제 검색하려는 문서의 주제나 이름만 추출해야 합니다.
 
 중요한 구분:
-- google_docs_search: "패스워드 문서에서 gmail 찾아줘" (특정 문서 내에서 검색)
-- google_docs_keyword_search: "구글 독스에서 해커스 문서 찾아줘" (Google Docs 전체에서 문서 검색)
+- google_docs_search: 사용자가 특정 Google Docs 문서 내에서 키워드 검색을 요청할 때. 반드시 문서 별칭과 키워드가 함께 언급되어야 함. (예: "패스워드 문서에서 gmail 찾아줘", "보고서 문서에서 2분기 실적 찾아줘")
+- google_docs_keyword_search: 사용자가 Google Docs 전체에서 특정 키워드로 문서를 검색할 때. (예: "구글 독스에서 해커스 문서 찾아줘")
+- summarize_document: 사용자가 현재 컨텍스트에 있는 문서의 요약을 요청할 때. (예: "이 문서 요약해줘", "주요 내용 알려줘")
 
 키워드 추출 시 주의사항:
 1. "구글 독스에서 해커스 문서 찾아줘" → searchKeyword: "해커스" (정확함)
