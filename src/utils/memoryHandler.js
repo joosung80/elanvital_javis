@@ -10,22 +10,25 @@
 const userMemories = new Map();
 
 /**
- * 사용자 ID로 메모리를 가져옵니다. 없으면 새로 생성합니다.
- * @param {string} userId - 사용자 ID
- * @returns {object} 사용자 메모리 객체
+ * 사용자 메모리 객체를 가져오거나 생성합니다.
+ * @param {string} userId - Discord 사용자 ID
+ * @returns {Object} 사용자 메모리 객체
  */
 function getUserMemory(userId) {
     if (!userMemories.has(userId)) {
-        console.log(`[MEMORY] 🆕 새로운 사용자 메모리 생성: ${userId}`);
+        console.log(`[MEMORY DEBUG] 🆕 새로운 메모리 생성 for user: ${userId}`);
         userMemories.set(userId, {
+            conversations: [],
+            lastDocuments: [],
+            recentDocuments: [],
             lastImageUrl: null,
             lastImageMimeType: null,
-            lastTopic: null,
-            sessionType: null,
-            lastDocuments: [],
-            compressedHistory: null,
-            recentDocuments: []
+            lastTopic: 'GENERAL',
+            sessionType: 'TEXT',
+            compressedHistory: null
         });
+    } else {
+        // console.log(`[MEMORY DEBUG] 🔍 기존 메모리 접근 for user: ${userId}`);
     }
     return userMemories.get(userId);
 }
@@ -66,7 +69,7 @@ async function saveDocumentsToMemory(userId, documents) {
 }
 
 /**
- * 현재 컨텍스트를 가져옵니다.
+ * 현재 컨텍스트(마지막 주제, 세션 타입 등)를 가져옵니다.
  * @param {string} userId - 사용자 ID
  * @returns {object} 현재 컨텍스트 객체
  */
@@ -84,28 +87,49 @@ function getCurrentContext(userId) {
 }
 
 /**
- * 최근 대화를 가져옵니다.
- * @param {string} userId - 사용자 ID
+ * 최근 대화 기록을 가져옵니다.
+ * @param {string} userId - Discord 사용자 ID
  * @param {number} count - 가져올 대화 수
- * @returns {Array} 최근 대화 객체 배열
+ * @returns {Array<Object>} 최근 대화 배열
  */
 function getRecentConversations(userId, count = 5) {
-    // 현재 구조에서는 개별 대화 기록을 저장하지 않으므로 빈 배열을 반환합니다.
-    return [];
+    const memory = getUserMemory(userId);
+    const conversations = memory.conversations.slice(0, count);
+    console.log(`[MEMORY DEBUG] 📚 대화 기록 조회: ${conversations.length}개 요청, ${conversations.length}개 반환 for user: ${userId}`);
+    return conversations;
 }
 
 /**
- * 대화를 메모리에 저장합니다.
- * @param {string} userId - 사용자 ID
- * @param {string} userInput - 사용자 입력
+ * 대화 내용을 메모리에 저장합니다.
+ * @param {string} userId - Discord 사용자 ID
+ * @param {string} userMessage - 사용자 메시지
  * @param {string} botResponse - 봇 응답
  * @param {string} category - 대화 카테고리
  */
-function saveConversation(userId, userInput, botResponse, category) {
+function saveConversation(userId, userMessage, botResponse, category) {
     const memory = getUserMemory(userId);
+    const conversation = {
+        userMessage,
+        botResponse,
+        category,
+        timestamp: new Date().toISOString()
+    };
+    memory.conversations.unshift(conversation); // 새 대화를 배열 맨 앞에 추가
+    if (memory.conversations.length > 10) { // 최대 10개 대화만 유지
+        memory.conversations.pop();
+    }
+    
+    // 마지막 주제와 세션 타입 업데이트
     memory.lastTopic = category;
-    memory.sessionType = category;
+    if (category === 'IMAGE' || category === 'DOCUMENT') {
+        memory.sessionType = category;
+    } else {
+        memory.sessionType = 'TEXT';
+    }
+
     console.log(`[MEMORY] 💬 대화 저장됨: ${userId} - ${category} (컨텍스트 업데이트)`);
+    console.log(`[MEMORY DEBUG] 💾 저장 후 대화 수: ${memory.conversations.length}개 for user: ${userId}`);
+    console.log(`[MEMORY DEBUG] 맵 전체 상태:`, [...userMemories.keys()]);
 }
 
 /**

@@ -110,9 +110,10 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
             : `You are an expert prompt engineer for an image generation AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI to create a high-quality image.
 
 **CRITICAL RULES:**
-1.  **USE THE CONVERSATION CONTEXT:** Carefully analyze the 'Recent Conversation Context' provided. The user's request often builds upon the conversation. Your prompt MUST reflect the key topics and details from the context.
-2.  **BE DESCRIPTIVE:** Add details about style (e.g., realistic, anime, digital art), mood, lighting, and composition.
-3.  **OUTPUT FORMAT:** The final prompt must be in English and be a single, concise instruction for the AI. Include keywords like "high quality, detailed".
+1.  **ABSOLUTELY NO QUESTIONS:** Your one and only job is to generate a descriptive English image prompt. You must NEVER, under any circumstances, ask the user for clarification, more details, or ask questions of any kind. You must infer the user's intent from the provided context and generate a complete, detailed prompt ready for an image AI.
+2.  **USE THE CONVERSATION CONTEXT:** The user's request often builds upon the conversation. Your prompt MUST be based on the key topics and details from the 'Recent Conversation Context'.
+3.  **BE CREATIVE & DESCRIPTIVE:** If the user's request is vague (e.g., "draw that"), it is your job to be creative. Based on the context, invent a beautiful and detailed scene. Add details about style (e.g., epic digital art, photorealistic), mood (e.g., awe-inspiring, serene), lighting, and composition.
+4.  **OUTPUT FORMAT:** The final prompt must be in English and be a single, concise instruction for the AI. Include keywords like "high quality, detailed".
 
 **EXAMPLE 1 (Simple Request):**
 - User Request: "draw a cat"
