@@ -149,7 +149,7 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
  * @param {string} userId - 사용자 ID (컨텍스트용)
  * @returns {Object} 결과 객체 { success, embed?, files?, textResponse? }
  */
-async function processImageGeneration(prompt, imageUrl = null, imageMimeType = null, requesterTag, requesterAvatarURL, discordMessage = null, userId = null) {
+async function processImageGeneration(prompt, imageUrl = null, imageMimeType = null, requesterTag, requesterAvatarURL, source = null, userId = null) {
     console.log(`[IMAGE HANDLER] 🎨 이미지 처리 핸들러 시작`);
     console.log(`[IMAGE HANDLER] 📝 프롬프트: "${prompt}"`);
     console.log(`[IMAGE HANDLER] 🖼️ 이미지 URL: ${imageUrl || 'null'}`);
@@ -165,13 +165,34 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
             };
         }
 
+        // Discord 피드백 전송 헬퍼 함수
+        const sendFeedback = async (content) => {
+            if (!source) return;
+            try {
+                // isCommandInteraction() 또는 유사한 메서드로 인터랙션인지 확인
+                if (source.isCommand && source.isCommand()) {
+                    await source.followUp(content);
+                } else {
+                    await source.channel.send(content);
+                }
+            } catch (error) {
+                console.error(`[IMAGE HANDLER] ❌ Discord 피드백 전송 실패:`, error);
+            }
+        };
+        
         // 1단계: 프롬프트 보강
         const isImageEdit = !!(imageUrl && imageMimeType);
         
         // Discord 피드백: 프롬프트 보강 시작
-        if (discordMessage) {
+        if (source) {
             try {
-                await discordMessage.reply('🔧 **프롬프트를 보강하고 있습니다...** ChatGPT가 더 나은 결과를 위해 프롬프트를 개선중입니다.');
+                const initialMessage = '🔧 **프롬프트를 보강하고 있습니다...** ChatGPT가 더 나은 결과를 위해 프롬프트를 개선중입니다.';
+                if (source.isCommand && source.isCommand()) {
+                    // deferReply에 대한 첫 응답은 editReply로 해야 합니다.
+                    await source.editReply(initialMessage);
+                } else {
+                    await source.reply(initialMessage);
+                }
             } catch (error) {
                 console.error(`[IMAGE HANDLER] ❌ Discord 피드백 전송 실패:`, error);
             }
@@ -180,16 +201,10 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
         const enhancedPrompt = await enhancePromptWithChatGPT(prompt, isImageEdit, userId);
         
         // Discord 피드백: 보강된 프롬프트 표시
-        if (discordMessage) {
-            try {
-                const promptMessage = `✨ **프롬프트 보강 완료!**\n\n` +
-                    `**원본:** "${prompt}"\n` +
-                    `**보강됨:** "${enhancedPrompt}"`;
-                await discordMessage.channel.send(promptMessage);
-            } catch (error) {
-                console.error(`[IMAGE HANDLER] ❌ Discord 프롬프트 피드백 전송 실패:`, error);
-            }
-        }
+        const promptMessage = `✨ **프롬프트 보강 완료!**\n\n` +
+            `**원본:** "${prompt}"\n` +
+            `**보강됨:** "${enhancedPrompt}"`;
+        await sendFeedback(promptMessage);
 
         let contents;
         
@@ -224,16 +239,10 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
         console.log(`[IMAGE HANDLER] 📊 컨텐츠 수: ${contents.length}`);
         
         // Discord 피드백: API 요청 시작
-        if (discordMessage) {
-            try {
-                const apiMessage = isImageEdit 
-                    ? '🎨 **Gemini AI에 이미지 수정 요청을 보냈습니다!** 잠시만 기다려주세요...'
-                    : '🎨 **Gemini AI에 이미지 생성 요청을 보냈습니다!** 잠시만 기다려주세요...';
-                await discordMessage.channel.send(apiMessage);
-            } catch (error) {
-                console.error(`[IMAGE HANDLER] ❌ Discord API 피드백 전송 실패:`, error);
-            }
-        }
+        const apiMessage = isImageEdit 
+            ? '🎨 **Gemini AI에 이미지 수정 요청을 보냈습니다!** 잠시만 기다려주세요...'
+            : '🎨 **Gemini AI에 이미지 생성 요청을 보냈습니다!** 잠시만 기다려주세요...';
+        await sendFeedback(apiMessage);
         
         const result = await genAI.models.generateContent({
             model: "gemini-2.5-flash-image-preview",
@@ -264,6 +273,11 @@ async function processImageGeneration(prompt, imageUrl = null, imageMimeType = n
                         .setImage(`attachment://${fileName}`)
                         .setTimestamp()
                         .setFooter({ text: `Requested by ${requesterTag}`, iconURL: requesterAvatarURL });
+
+                    // 원본 이미지가 있는 경우 썸네일로 추가하여 비교를 용이하게 함
+                    if (imageUrl) {
+                        embed.setThumbnail(imageUrl);
+                    }
 
                     console.log(`[IMAGE HANDLER] 🎉 이미지 처리 성공!`);
                     return {

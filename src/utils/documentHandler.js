@@ -11,6 +11,7 @@ const https = require('https');
 const http = require('http');
 const { URL } = require('url');
 const OpenAI = require('openai');
+const { saveDocumentsToMemory } = require('./memoryHandler');
 
 // OpenAI 클라이언트 초기화 (API 키가 있는 경우에만)
 let openai = null;
@@ -454,10 +455,68 @@ function formatDocumentSummary(documentContexts, summaryText = null) {
     return message;
 }
 
+/**
+ * Discord 메시지로부터 문서 처리 요청을 핸들링하는 메인 함수
+ * (기존 src/handlers/documentHandler.js의 내용)
+ */
+async function handleDocumentRequest(message, classification, actualContent = null) {
+  console.log(`[DOCUMENT REQUEST] 📄 문서 처리 요청: ${classification.reason}`);
+  
+  try {
+    const attachments = Array.from(message.attachments.values());
+    const documentAttachments = attachments.filter(att => {
+      const supportedTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword'
+      ];
+      const fileExtension = att.name.toLowerCase().split('.').pop();
+      return supportedTypes.includes(att.contentType) || 
+             ['pdf', 'docx', 'doc'].includes(fileExtension);
+    });
+    
+    if (documentAttachments.length === 0) {
+      const response = `📄 **문서를 찾을 수 없습니다**...`; // 전체 응답 메시지
+      await message.reply(response);
+      return response;
+    }
+    
+    const processingMessage = await message.reply(`📄 **문서 분석 중...**`);
+    
+    const documentContexts = await parseMultipleDocuments(documentAttachments);
+    
+    // 성공적으로 파싱된 문서 컨텍스트 중 첫 번째 문서의 요약을 가져옴
+    const firstSuccessfulDoc = documentContexts.find(doc => doc.type === 'document');
+    let summaryText = null;
+
+    if (firstSuccessfulDoc) {
+        summaryText = await summarizeDocument(firstSuccessfulDoc.content, firstSuccessfulDoc.filename);
+    }
+
+    const summaryMessage = formatDocumentSummary(documentContexts, summaryText);
+    
+    await processingMessage.edit(summaryMessage);
+    
+    if (successfulDocs.length > 0) {
+      saveDocumentsToMemory(message.author.id, documentContexts);
+      console.log(`[DOCUMENT] 💾 ${successfulDocs.length}개 문서가 메모리에 저장됨`);
+    }
+    
+    return summaryMessage;
+    
+  } catch (error) {
+    console.error('[DOCUMENT REQUEST] ❌ 문서 처리 오류:', error);
+    const errorResponse = `❌ **문서 처리 중 오류가 발생했습니다**...`; // 전체 오류 메시지
+    await message.reply(errorResponse);
+    return errorResponse;
+  }
+}
+
 module.exports = {
     parseDocument,
     parseMultipleDocuments,
     formatDocumentSummary,
     createDocumentContext,
-    summarizeDocument
+    summarizeDocument,
+    handleDocumentRequest // 새로 추가된 export
 };
