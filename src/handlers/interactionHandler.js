@@ -9,6 +9,30 @@ module.exports = {
     async execute(interaction) {
         const { client } = interaction;
 
+        // Slash Command 처리
+        if (interaction.isChatInputCommand()) {
+            const command = client.commands.get(interaction.commandName);
+
+            if (!command) {
+                console.error(`❌ 알 수 없는 명령어: ${interaction.commandName}`);
+                return;
+            }
+
+            try {
+                console.log(`💬 Slash Command 실행: /${interaction.commandName}`);
+                await command.execute(interaction);
+            } catch (error) {
+                console.error(`❌ Slash Command 실행 오류:`, error);
+                const errorMessage = '명령어 실행 중 오류가 발생했습니다.';
+                
+                if (interaction.replied || interaction.deferred) {
+                    await interaction.followUp({ content: errorMessage, ephemeral: true });
+                } else {
+                    await interaction.reply({ content: errorMessage, ephemeral: true });
+                }
+            }
+        }
+
         if (interaction.isButton()) {
             const customId = interaction.customId;
             console.log(`[INTERACTION] 🔘 버튼 클릭: ${customId}`);
