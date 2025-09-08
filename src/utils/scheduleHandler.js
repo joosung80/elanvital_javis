@@ -156,56 +156,76 @@ async function parseEventWithGemini(text) {
  * @returns {Object|null} 시간 범위 정보
  */
 async function getTimeRangeFromPeriod(period) {
-    console.log(`🕐 시간 범위 파싱: "${period}"`);
+    // 시간 범위 파싱 로그는 아래 현재 시간 로그로 대체
     
     const now = new Date();
     const koreanTime = now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
     const koreanDate = now.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
     const koreanWeekday = now.toLocaleDateString('ko-KR', { weekday: 'long', timeZone: 'Asia/Seoul' });
     
+    // 현재 날짜 정보 계산
+    const currentDate = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const currentDay = currentDate.getDay(); // 0=일요일, 1=월요일, ..., 6=토요일
+    const currentDateStr = currentDate.toLocaleDateString('ko-KR');
+    
+    // 이번주/다음주 정확한 날짜 계산
+    const thisWeekMonday = new Date(currentDate);
+    thisWeekMonday.setDate(currentDate.getDate() - (currentDay === 0 ? 6 : currentDay - 1));
+    
+    const thisWeekSunday = new Date(thisWeekMonday);
+    thisWeekSunday.setDate(thisWeekMonday.getDate() + 6);
+    
+    const nextWeekMonday = new Date(thisWeekSunday);
+    nextWeekMonday.setDate(thisWeekSunday.getDate() + 1);
+    
+    const nextWeekSunday = new Date(nextWeekMonday);
+    nextWeekSunday.setDate(nextWeekMonday.getDate() + 6);
+    
+    const thisWeekStr = `${thisWeekMonday.toLocaleDateString('ko-KR')} ~ ${thisWeekSunday.toLocaleDateString('ko-KR')}`;
+    const nextWeekStr = `${nextWeekMonday.toLocaleDateString('ko-KR')} ~ ${nextWeekSunday.toLocaleDateString('ko-KR')}`;
+    
+    // 일정 처리 3가지 핵심 정보
+    console.log(`📝 사용자 키워드: "${period}"`);
+    console.log(`🕐 현재 시간: ${currentDateStr} (${koreanWeekday})`);
+    // 최종 기간은 OpenAI 응답 후에 표시
+    
     const prompt = `
 당신은 한국어 기간 표현을 정확한 날짜 범위로 변환하는 전문가입니다.
 
-현재 시간 정보:
-- 현재 UTC 시간: ${now.toISOString()}
+**현재 시간 정보:**
 - 현재 한국 시간: ${koreanTime}
-- 현재 한국 날짜: ${koreanDate}
-- 현재 요일: ${koreanWeekday}
+- 현재 한국 날짜: ${currentDateStr}
+- 현재 요일: ${koreanWeekday} (숫자: ${currentDay}, 0=일요일)
 
-기간 표현: "${period}"
+**요청된 기간: "${period}"**
 
-**중요한 주 계산 규칙 (월요일부터 일요일까지):**
+**주 계산 규칙 (월요일=주 시작, 일요일=주 끝):**
 
-1. **이번주**: 현재 날짜가 포함된 주의 월요일 00:00 ~ 일요일 23:59
-   - 예: 현재가 9월 8일(일)이면 → 9월 2일(월) ~ 9월 8일(일)
-   - 예: 현재가 9월 9일(월)이면 → 9월 9일(월) ~ 9월 15일(일)
+현재 요일이 ${koreanWeekday}(${currentDay})이므로:
 
-2. **다음주**: 이번주 다음 주의 월요일 00:00 ~ 일요일 23:59
-   - 예: 현재가 9월 8일(일)이면 → 9월 9일(월) ~ 9월 15일(일)
-   - 예: 현재가 9월 9일(월)이면 → 9월 16일(월) ~ 9월 22일(일)
+1. **이번주**: 현재 날짜가 포함된 주
+   - 월요일까지 ${currentDay === 0 ? 6 : currentDay - 1}일 전
+   - 일요일까지 ${currentDay === 0 ? 0 : 7 - currentDay}일 후
 
-3. **지난주**: 이번주 이전 주의 월요일 00:00 ~ 일요일 23:59
-   - 예: 현재가 9월 8일(일)이면 → 8월 26일(월) ~ 9월 1일(일)
-   - 예: 현재가 9월 9일(월)이면 → 9월 2일(월) ~ 9월 8일(일)
+2. **다음주**: 이번주 다음 주
+   - 다음주 월요일까지 ${currentDay === 0 ? 1 : 8 - currentDay}일 후
+   - 다음주 일요일까지 ${currentDay === 0 ? 7 : 14 - currentDay}일 후
 
-**기타 기간 규칙:**
-- "오늘" = 현재 날짜 00:00 ~ 23:59
-- "내일" = 현재 날짜 + 1일 00:00 ~ 23:59
-- "어제" = 현재 날짜 - 1일 00:00 ~ 23:59
-- "이번달" = 현재 달 1일 00:00 ~ 마지막 날 23:59
-- "다음달" = 다음 달 1일 00:00 ~ 마지막 날 23:59
-- "지난달" = 지난 달 1일 00:00 ~ 마지막 날 23:59
+**정확한 계산 결과:**
+- 현재: ${currentDateStr} (${koreanWeekday})
+- 이번주: ${thisWeekStr}
+- 다음주: ${nextWeekStr}
 
-**주 계산 단계별 예시:**
-현재: 2025년 9월 8일 일요일
-1. 이번주 월요일 찾기: 9월 8일(일) - 6일 = 9월 2일(월)
-2. 이번주 일요일: 9월 8일(일) (현재)
-3. 다음주 월요일: 9월 8일(일) + 1일 = 9월 9일(월)
-4. 다음주 일요일: 9월 9일(월) + 6일 = 9월 15일(일)
+**중요: "${period}" 요청에 대해 위 계산 결과를 정확히 사용하세요!**
 
-시간대는 항상 'Asia/Seoul' (+09:00)을 사용하세요.
+**기타 기간:**
+- "오늘": ${currentDateStr} 00:00 ~ 23:59
+- "내일": 내일 날짜 00:00 ~ 23:59
+- "어제": 어제 날짜 00:00 ~ 23:59
 
-응답은 반드시 다음 JSON 형식으로만 답변해주세요:
+시간대: Asia/Seoul (+09:00)
+
+응답 형식 (JSON만):
 {
   "start": "YYYY-MM-DDTHH:MM:SS+09:00",
   "end": "YYYY-MM-DDTHH:MM:SS+09:00",
@@ -241,10 +261,10 @@ async function getTimeRangeFromPeriod(period) {
         if (jsonMatch) {
             const timeRange = JSON.parse(jsonMatch[0]);
             
-            // 계산된 날짜 범위 로그 출력
+            // 최종 타겟 기간 표시
             const startDate = new Date(timeRange.start);
             const endDate = new Date(timeRange.end);
-            console.log(`📅 ${timeRange.description}: ${startDate.toLocaleDateString('ko-KR')} ~ ${endDate.toLocaleDateString('ko-KR')}`);
+            console.log(`🎯 최종 기간: ${startDate.toLocaleDateString('ko-KR')} ~ ${endDate.toLocaleDateString('ko-KR')} (${timeRange.description})`);
             
             return timeRange;
         }
@@ -284,9 +304,16 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
         
         if (!events || events.length === 0) {
             console.log(`ℹ️ 해당 기간에 일정 없음`);
+            
+            // 날짜 범위를 포함한 메시지 생성
+            const startDate = new Date(timeRange.start);
+            const endDate = new Date(timeRange.end);
+            const startStr = `${startDate.getMonth() + 1}/${startDate.getDate()}(${['일','월','화','수','목','금','토'][startDate.getDay()]})`;
+            const endStr = `${endDate.getMonth() + 1}/${endDate.getDate()}(${['일','월','화','수','목','금','토'][endDate.getDay()]})`;
+            
             return {
                 success: true,
-                message: `**${timeRange.description}**에 예정된 일정이 없습니다.`
+                message: `**${timeRange.description}: ${startStr} ~ ${endStr}**에 예정된 일정이 없습니다.`
             };
         }
         
@@ -368,7 +395,13 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
             return `**${index + 1}.** \`${dateStr} ${timeStr}\` **${eventTitle}**`;
         }).join('\n');
         
-        const message = `**${timeRange.description} 일정:**\n\n${eventList}\n\n🔧 **아래 버튼으로 수정/삭제하세요:**`;
+        // 날짜 범위를 포함한 제목 생성
+        const startDate = new Date(timeRange.start);
+        const endDate = new Date(timeRange.end);
+        const startStr = `${startDate.getMonth() + 1}/${startDate.getDate()}(${['일','월','화','수','목','금','토'][startDate.getDay()]})`;
+        const endStr = `${endDate.getMonth() + 1}/${endDate.getDate()}(${['일','월','화','수','목','금','토'][endDate.getDay()]})`;
+        
+        const message = `**${timeRange.description} 일정: ${startStr} ~ ${endStr}**\n\n${eventList}\n\n🔧 **아래 버튼으로 수정/삭제하세요:**`;
         
         console.log(`✅ 일정 조회 완료 (${events.length}개)`);
         
@@ -418,9 +451,16 @@ async function getScheduleSummary(period = '오늘') {
         
         if (!events || events.length === 0) {
             console.log(`[SCHEDULE DEBUG] ℹ️ 해당 기간에 일정 없음`);
+            
+            // 날짜 범위를 포함한 메시지 생성
+            const startDate = new Date(timeRange.start);
+            const endDate = new Date(timeRange.end);
+            const startStr = `${startDate.getMonth() + 1}/${startDate.getDate()}(${['일','월','화','수','목','금','토'][startDate.getDay()]})`;
+            const endStr = `${endDate.getMonth() + 1}/${endDate.getDate()}(${['일','월','화','수','목','금','토'][endDate.getDay()]})`;
+            
             return {
                 success: true,
-                message: `${timeRange.description}에 예정된 일정이 없습니다.`
+                message: `**${timeRange.description}: ${startStr} ~ ${endStr}**에 예정된 일정이 없습니다.`
             };
         }
         
@@ -464,10 +504,16 @@ async function getScheduleSummary(period = '오늘') {
         const moreEventsMessage = hasMoreEvents ? 
             `\n\n📋 **총 ${events.length}개 일정 중 ${maxEventsToShow}개만 표시**\n더 많은 일정을 보려면 Google Calendar를 확인하세요.` : '';
         
+        // 날짜 범위를 포함한 제목 생성
+        const startDate = new Date(timeRange.start);
+        const endDate = new Date(timeRange.end);
+        const startStr = `${startDate.getMonth() + 1}/${startDate.getDate()}(${['일','월','화','수','목','금','토'][startDate.getDay()]})`;
+        const endStr = `${endDate.getMonth() + 1}/${endDate.getDate()}(${['일','월','화','수','목','금','토'][endDate.getDay()]})`;
+        
         console.log(`[SCHEDULE DEBUG] ✅ 일정 조회 완료 (${eventsToShow.length}/${events.length})`);
         return {
             success: true,
-            message: `**${timeRange.description} 일정:**\n\n${eventList}${moreEventsMessage}`
+            message: `**${timeRange.description} 일정: ${startStr} ~ ${endStr}**\n\n${eventList}${moreEventsMessage}`
         };
     } catch (error) {
         console.error(`[SCHEDULE DEBUG] ❌ 일정 조회 오류:`, error);
