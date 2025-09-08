@@ -1,83 +1,78 @@
 const { classifyUserInput } = require('../classifier');
-const { saveConversation } = require('../utils/memoryHandler');
-const { transcribeAudio } = require('../utils/voiceHandler');
-const { handleScheduleRequest } = require('../utils/scheduleHandler');
+const { handleHelpRequest } = require('../commands/help');
 const { handleImageRequest } = require('../utils/imageHandler');
-const { handleDocumentRequest, handleGoogleDocsKeywordSearchRequest, handleDocumentSummarizationRequest } = require('../utils/documentHandler');
+const { handleDriveSearchRequest } = require('../utils/driveHandler');
+const { handleScheduleRequest } = require('../utils/scheduleHandler');
 const { handleTaskRequest } = require('../utils/taskHandler');
+const { handleMemoryRequest } = require('../commands/memory');
 const { handleGeneralRequest } = require('../utils/generalHandler');
-const { handleMemoryRequest } = require('../utils/memoryHandler');   // 이 부분은 saveConversation과 중복되므로 정리 필요
+const { transcribeAudio } = require('../utils/voiceHandler');
 
-const docsSearchSessions = new Map();
-
-async function handleMessageCreate(message) {
+async function handleMessageCreate(message, client) {
     if (message.author.bot) return;
-
-    console.log(`[MESSAGE] 💬 수신 메시지: "${message.content}" (${message.author.username})`);
     
     let actualContent = message.content;
-    
-    // 음성 메시지 처리
+    let botResponse = null;
+
     if (message.attachments.size > 0) {
         const attachment = message.attachments.first();
-        if (attachment.contentType && attachment.contentType.startsWith('audio/')) {
+        if (attachment.contentType.startsWith('audio/')) {
             try {
-                const thinkingMessage = await message.reply('🎤 음성 메시지를 텍스트로 변환 중입니다...');
-                actualContent = await transcribeAudio(attachment.url, attachment.name);
-                await thinkingMessage.edit(`> **${message.author.username}:** ${actualContent}`);
+                actualContent = await transcribeAudio(attachment.url);
+                await message.reply(`> 🔊 **음성 메시지:** "${actualContent}"`);
             } catch (error) {
-                console.error('음성 변환 실패:', error);
-                await message.reply('죄송합니다, 음성 메시지를 변환하는 데 실패했습니다.');
+                await message.reply('음성 메시지를 텍스트로 변환하는 데 실패했습니다.');
                 return;
             }
         }
     }
 
-    // 텍스트 내용이 없으면 더 이상 진행하지 않음
-    if (!actualContent) {
-        console.log('[MESSAGE] 내용이 없는 메시지이므로 처리를 중단합니다.');
-        return;
-    }
-
     try {
-        const classification = await classifyUserInput(actualContent, [], message.author.id);
-        console.log(`[CLASSIFY] User: ${message.author.tag}, Category: ${classification.category}`);
+        const classification = await classifyUserInput(message, client);
+        console.log('[CLASSIFY] ✅ 분류 결과:', classification);
 
-        let botResponse = '';
+        let botResponseContent = null;
+
         switch (classification.category) {
-            case 'DOCUMENT':
-                if (classification.documentType === 'google_docs_keyword_search') {
-                    await handleGoogleDocsKeywordSearchRequest(message, classification.extractedInfo.searchKeyword, docsSearchSessions);
-                } else if (classification.documentType === 'summarize_document') {
-                    await handleDocumentSummarizationRequest(message);
-                } else {
-                    await handleDocumentRequest(message, classification); // 일반 문서 요청
-                }
+            case 'HELP':
+                botResponseContent = await handleHelpRequest();
                 break;
-            case 'IMAGE':
-                botResponse = await handleImageRequest(message, actualContent);
-                break;
-            case 'TASK':
-                botResponse = await handleTaskRequest(message, classification);
+            case 'DRIVE':
+                await handleDriveSearchRequest(message, classification, client.driveSearchSessions);
                 break;
             case 'SCHEDULE':
-                botResponse = await handleScheduleRequest(message, classification, actualContent);
+                await handleScheduleRequest(message, classification, client.scheduleSessions);
                 break;
-            // ... 다른 case들 ...
+            case 'TASK':
+                await handleTaskRequest(message, classification, client.taskSessions);
+                break;
+            case 'MEMORY':
+                botResponseContent = await handleMemoryRequest(message);
+                break;
+            case 'IMAGE':
+                await handleImageRequest(message);
+                break;
+            case 'GENERAL':
             default:
-                botResponse = await handleGeneralRequest(message, actualContent);
+                botResponseContent = await handleGeneralRequest(message);
                 break;
         }
 
-        await saveConversation(message.author.id, actualContent, botResponse || '응답 완료', classification.category);
+        if (botResponseContent) {
+            botResponse = await message.reply(botResponseContent);
+        }
+
+        // 대화 저장
+        if (botResponse && botResponse.content) {
+            client.memory.saveConversation(message.author.id, actualContent, botResponse.content);
+        }
 
     } catch (error) {
-        console.error('Error in message processing:', error);
-        await message.reply('죄송합니다. 요청을 처리하는 동안 오류가 발생했습니다.');
+        console.error('메시지 처리 중 오류 발생:', error);
+        await message.reply('죄송합니다, 메시지를 처리하는 중에 오류가 발생했습니다.');
     }
 }
 
-module.exports = { 
+module.exports = {
     handleMessageCreate,
-    docsSearchSessions
 };

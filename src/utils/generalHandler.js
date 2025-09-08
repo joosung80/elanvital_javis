@@ -1,5 +1,4 @@
 const fetch = require('node-fetch');
-const { getUserMemory } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
 
 /**
@@ -68,167 +67,57 @@ async function downloadFileContent(url, contentType) {
  * @param {string} userId - 사용자 ID
  * @returns {Object} 처리 결과
  */
-async function handleGeneralRequest(message, content) {
-    const userInput = content || message.content;
-    const attachments = Array.from(message.attachments.values());
-    const userId = message.author.id;
-
-    console.log(`[GENERAL DEBUG] 🤖 일반 질문 처리 시작`);
-    console.log(`[GENERAL DEBUG] 👤 사용자 ID: ${userId}`);
-    console.log(`[GENERAL DEBUG] 💬 질문: "${userInput}"`);
-    console.log(`[GENERAL DEBUG] 📎 첨부파일 수: ${attachments.length}`);
+async function handleGeneralRequest(message) {
+    const { client, author, content } = message;
+    const userId = author.id;
     
-    let openai;
+    console.log('[GENERAL_DEBUG] 🤖 일반 질문 처리 시작');
+    console.log(`[GENERAL_DEBUG] 👤 사용자 ID: ${userId}`);
+    console.log(`[GENERAL_DEBUG] 💬 질문: "${content}"`);
+    console.log(`[GENERAL_DEBUG] 📎 첨부파일 수: ${message.attachments.size}`);
+
     try {
-        openai = getOpenAIClient();
-    } catch (error) {
-        console.log(`[GENERAL DEBUG] ⚠️ OpenAI 클라이언트 초기화 실패:`, error.message);
-        const errorMessage = '죄송합니다. 현재 OpenAI API 키가 설정되지 않아 일반 질문에 답변할 수 없습니다.\n\n다음 기능들은 여전히 사용 가능합니다:\n- 일정 관리 (/myschedule)\n- 이미지 생성 (/image)\n- 문서 분석 (PDF/Word 업로드)\n- 메모리 관리';
-        await message.channel.send(errorMessage);
-        return errorMessage;
-    }
-    
-    try {
-        // 문서 컨텍스트 가져오기
-        const memory = getUserMemory(userId);
-        const recentDocuments = memory.recentDocuments || [];
-        
-        console.log(`[GENERAL DEBUG] 📄 최근 문서 ${recentDocuments.length}개 로드됨`);
-        
-        // 텍스트 파일 필터링
-        const textFiles = attachments.filter(att => 
-            att.contentType && (
-                att.contentType.includes('text/') ||
-                att.contentType.includes('application/json') ||
-                att.contentType.includes('application/javascript') ||
-                att.contentType.includes('application/xml')
-            )
-        );
-        
-        // 시스템 프롬프트 구성
-        let systemPrompt = `당신은 도움이 되고 친근한 한국어 AI 어시스턴트입니다.
-사용자의 질문에 정확하고 유용한 답변을 제공해주세요.
+        const userMemory = client.memory.getUserMemory(userId);
+        const recentConversations = client.memory.getRecentConversations(userId);
 
-문서 컨텍스트가 있는 경우, 해당 문서의 내용을 바탕으로 답변해주세요.
+        const formattedConversations = Array.from(recentConversations.values())
+            .map(conv => `User: ${conv.user}\nBot: ${conv.bot}`)
+            .join('\n\n');
 
-답변 가이드라인:
-- 한국어로 자연스럽게 답변해주세요
-- 정확하고 도움이 되는 정보를 제공해주세요
-- 필요시 예시나 단계별 설명을 포함해주세요
-- 모르는 내용은 솔직하게 모른다고 말해주세요
-- 답변은 간결하고 명확하게 작성해주세요
-- 코드나 기술적 내용은 마크다운 형식으로 작성해주세요`;
+        const lastDocument = userMemory.lastDocument;
+        const documentContext = lastDocument 
+            ? `The user has recently read a document titled "${lastDocument.title}".`
+            : "There is no document context.";
 
-        // 사용자 메시지 구성
-        let userMessage = userInput;
-        
-        // 문서 컨텍스트 추가
-        if (recentDocuments.length > 0) {
-            userMessage += '\n\n**참고할 수 있는 최근 문서들:**\n';
-            recentDocuments.forEach((doc, index) => {
-                userMessage += `\n${index + 1}. **${doc.filename}** (${doc.wordCount}단어)\n`;
-                userMessage += `   요약: ${doc.summary}\n`;
-                
-                // 문서 내용이 질문과 관련있어 보이면 일부 내용 포함
-                const questionLower = userInput.toLowerCase();
-                const contentLower = doc.content.toLowerCase();
-                
-                // 간단한 키워드 매칭으로 관련성 확인
-                const keywords = questionLower.split(' ').filter(word => word.length > 2);
-                const isRelevant = keywords.some(keyword => contentLower.includes(keyword));
-                
-                if (isRelevant) {
-                    const maxContentLength = 1000;
-                    const truncatedContent = doc.content.length > maxContentLength 
-                        ? doc.content.substring(0, maxContentLength) + '\n... (내용이 더 있습니다)'
-                        : doc.content;
-                    userMessage += `   내용 일부:\n\`\`\`\n${truncatedContent}\n\`\`\`\n`;
-                }
-            });
-        }
-        
-        // 텍스트 파일이 있는 경우 내용 추가
-        if (textFiles.length > 0) {
-            userMessage += '\n\n첨부된 파일들:\n';
-            
-            for (const file of textFiles) {
-                console.log(`[GENERAL DEBUG] 📄 파일 처리 중: ${file.name}`);
-                
-                const fileContent = await downloadFileContent(file.url, file.contentType);
-                if (fileContent) {
-                    // 파일 내용이 너무 긴 경우 제한
-                    const maxFileLength = 3000;
-                    const truncatedContent = fileContent.length > maxFileLength 
-                        ? fileContent.substring(0, maxFileLength) + '\n... (파일이 잘렸습니다)'
-                        : fileContent;
-                    
-                    userMessage += `\n**${file.name}** (${file.contentType}):\n\`\`\`\n${truncatedContent}\n\`\`\`\n`;
-                } else {
-                    userMessage += `\n**${file.name}** (${file.contentType}): 파일을 읽을 수 없습니다.\n`;
-                }
-            }
-            
-            userMessage += '\n위 파일 내용을 참고하여 답변해주세요.';
-        }
-        
-        console.log(`[GENERAL DEBUG] 🤖 OpenAI GPT-4o-mini API 호출 중...`);
-        
-        // OpenAI API 호출
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+        const openai = getOpenAIClient();
+
+        const systemPrompt = `You are a helpful and friendly conversational AI assistant named 'Elanvital Agent'.
+- Your primary language is Korean.
+- Be concise and clear in your answers.
+- If you are unsure about something, it's better to say you don't know than to guess.
+
+[Current Conversation Context]
+- Document Context: ${documentContext}
+- Recent Chat History (up to 5 turns):
+${formattedConversations}
+`;
+
+        const completion = await openai.chat.completions.create({
+            model: "gpt-4-turbo",
             messages: [
-                {
-                    role: "system",
-                    content: systemPrompt
-                },
-                {
-                    role: "user", 
-                    content: userMessage
-                }
-            ],
-            temperature: 0.7,
-            max_tokens: 2000,
-            top_p: 1,
-            frequency_penalty: 0,
-            presence_penalty: 0
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: content }
+            ]
         });
         
-        const aiResponse = response.choices[0].message.content;
-        
-        console.log(`[GENERAL DEBUG] 📝 응답 길이: ${aiResponse.length}자`);
-        console.log(`[GENERAL DEBUG] 📄 응답 미리보기: ${aiResponse.substring(0, 100)}...`);
-        
-        // 모바일 친화적으로 메시지 분할
-        const messageChunks = splitMessageForMobile(aiResponse, 1800);
-        
-        console.log(`[GENERAL DEBUG] 📤 ${messageChunks.length}개 메시지로 분할`);
-        console.log(`[GENERAL DEBUG] ✅ 일반 질문 처리 완료`);
-        
-        // 최종 응답 전송
-        for (const chunk of messageChunks) {
-            await message.channel.send(chunk);
-        }
-        return aiResponse; // 대화 기록을 위해 원본 응답 반환
-        
+        const botResponse = completion.choices[0].message.content;
+
+        return botResponse;
+
     } catch (error) {
-        console.error(`[GENERAL DEBUG] ❌ 일반 질문 처리 오류:`, error);
-        
-        let errorMessage = '죄송합니다. 답변을 생성하는 동안 오류가 발생했습니다.';
-        
-        if (error.code === 'insufficient_quota') {
-            errorMessage = 'OpenAI API 할당량이 부족합니다. 관리자에게 문의해주세요.';
-        } else if (error.code === 'invalid_api_key') {
-            errorMessage = 'OpenAI API 키가 유효하지 않습니다. 관리자에게 문의해주세요.';
-        } else if (error.message && error.message.includes('rate limit')) {
-            errorMessage = 'API 요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.';
-        }
-        
-        await message.channel.send(errorMessage);
-        return errorMessage; // 대화 기록을 위해 오류 메시지 반환
+        console.error('[GENERAL_DEBUG] ❌ 일반 질문 처리 오류:', error);
+        return '죄송합니다, 질문을 처리하는 중에 오류가 발생했습니다.';
     }
 }
 
-module.exports = {
-    handleGeneralRequest,
-    splitMessageForMobile
-};
+module.exports = { handleGeneralRequest };

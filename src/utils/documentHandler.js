@@ -12,10 +12,8 @@ const http = require('http');
 const { URL } = require('url');
 const { saveDocumentsToMemory } = require('./memoryHandler');
 const { getOpenAIClient } = require('./openaiClient');
-const { readDocumentByAlias, searchAndReadDocuments, searchKeywordInDocument } = require('./docsHandler');
 const { getUserMemory } = require('../utils/memoryHandler');
-const { searchGoogleDocs, formatDocsSearchResults } = require('./docsHandler');
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 /**
  * URL에서 파일을 다운로드하여 Buffer로 반환
@@ -362,16 +360,24 @@ async function summarizeDocument(text, filename, summaryType = 'detailed') {
                 
             case 'detailed':
             default:
-                systemPrompt = `당신은 문서 요약 전문가입니다. 주어진 문서를 상세하고 체계적으로 요약해주세요.
-- 문서의 주요 내용과 구조 파악
-- 중요한 정보와 세부사항 포함
-- 논리적 순서로 정리
-- 읽기 쉽고 이해하기 쉽게 작성
-- 한국어로 작성`;
+                systemPrompt = `당신은 긴 문서를 분석하고 보고하는 수석 애널리스트입니다. 다음 규칙을 **반드시** 지켜서 주어진 문서를 분석하고 요약해주세요.
+
+**Part 1: 문서 용도 추측**
+- 문서의 내용, 형식, 단어 선택 등을 종합적으로 분석하여 이 문서의 **핵심 용도**를 추측합니다. (예: 강의안, 회의록, 프로젝트 기획서, 기술 메뉴얼, 주간 보고서 등)
+- 추측한 용도와 그 근거를 **정확히 2줄**로 설명하여 요약의 가장 첫 부분에 제시해주세요.
+
+**Part 2: 핵심 내용 요약**
+- '문서 용도'를 제시한 후, 한 줄을 띄고 다음 규칙에 따라 내용을 요약합니다.
+- **서론**: 문서의 핵심 주제를 1~2줄로 설명합니다.
+- **본론**: 가장 중요한 포인트 2~5개를 글머리 기호(-)를 사용하여 목록으로 만듭니다.
+- **결론**: 문서의 최종 결론이나 시사점을 1줄로 요약합니다.
+- **분량**: Part 2의 요약은 **8줄 이내**로 작성하여, 전체(Part 1 + Part 2)가 너무 길어지지 않게 합니다.
+- **스타일**: 중요한 키워드는 **굵은 글씨**로 강조하고, 전문적인 톤을 유지합니다.
+- **언어**: 반드시 한국어로 작성합니다.`;
                 break;
         }
         
-        userPrompt = `다음 문서를 요약해주세요:
+        userPrompt = `다음 문서를 위의 규칙에 따라 요약해주세요:
 
 파일명: ${filename}
 내용:
@@ -510,191 +516,34 @@ async function handleDocumentRequest(message, classification, actualContent = nu
 }
 
 /**
- * Google Docs 문서 읽기 요청을 처리합니다.
- * @param {string} keyword - 문서 별칭이나 검색 키워드
- * @param {string} userId - 사용자 ID
- * @returns {Promise<string>} 처리 결과 메시지
+ * '문서 요약' 버튼 상호작용을 처리합니다.
+ * @param {object} interaction - Discord 상호작용 객체
  */
-async function handleGoogleDocsRequest(keyword, userId) {
-    try {
-        console.log(`[GOOGLE DOCS] 📄 문서 읽기 요청: ${keyword}`);
-        
-        let result;
-        
-        try {
-            // 먼저 정확한 별칭으로 시도
-            result = await readDocumentByAlias(keyword);
-        } catch (error) {
-            // 별칭이 없으면 검색으로 시도
-            console.log(`[GOOGLE DOCS] 🔍 별칭 '${keyword}' 없음, 검색으로 시도`);
-            result = await searchAndReadDocuments(keyword);
-            result = result.document; // 검색 결과에서 문서 추출
-        }
-        
-        const { title, content, wordCount, characterCount, aliasName, description } = result;
-        
-        // 메모리에 문서 저장
-        const documentContext = {
-            filename: `${aliasName || title}.gdocs`,
-            content: content,
-            summary: content.length > 1000 ? content.substring(0, 1000) + '...' : content,
-            uploadTime: new Date(),
-            fileType: 'google_docs',
-            metadata: {
-                title,
-                wordCount,
-                characterCount,
-                alias: result.alias,
-                description
-            }
-        };
-        
-        saveDocumentsToMemory(userId, documentContext);
-        
-        // 응답 메시지 생성
-        let responseMessage = `📄 **Google Docs 문서를 읽어왔습니다!**\n\n`;
-        responseMessage += `**📋 문서 정보:**\n`;
-        responseMessage += `• **제목:** ${title}\n`;
-        if (aliasName) {
-            responseMessage += `• **별칭:** ${aliasName}\n`;
-        }
-        if (description) {
-            responseMessage += `• **설명:** ${description}\n`;
-        }
-        responseMessage += `• **단어 수:** ${wordCount.toLocaleString()}개\n`;
-        responseMessage += `• **문자 수:** ${characterCount.toLocaleString()}자\n\n`;
-        
-        // 내용 미리보기 (처음 500자)
-        const preview = content.length > 500 ? content.substring(0, 500) + '...' : content;
-        responseMessage += `**📖 내용 미리보기:**\n\`\`\`\n${preview}\n\`\`\`\n\n`;
-        responseMessage += `💡 이 문서에 대해 질문하거나 요약을 요청할 수 있습니다!`;
-        
-        return responseMessage;
-        
-    } catch (error) {
-        console.error(`[GOOGLE DOCS] ❌ 문서 읽기 실패:`, error);
-        return `❌ **Google Docs 문서 읽기 실패**\n\n${error.message}\n\n💡 문서 별칭을 확인하거나 문서 공유 설정을 확인해주세요.`;
+async function handleSummarizeButton(interaction) {
+    await interaction.deferReply();
+    const { client, user } = interaction;
+    const userMemory = client.memory.getUserMemory(user.id);
+    const lastDocument = userMemory.lastDocument;
+
+    if (!lastDocument || !lastDocument.content) {
+        await interaction.followUp({ content: '❌ 요약할 문서가 컨텍스트에 없습니다. 먼저 문서를 읽어주세요.', ephemeral: true });
+        return;
     }
-}
 
-/**
- * Google Docs 문서에서 키워드 검색 요청을 처리합니다.
- * @param {string} documentAlias - 문서 별칭
- * @param {string} searchKeyword - 검색할 키워드
- * @param {string} userId - 사용자 ID
- * @returns {Promise<string>} 처리 결과 메시지
- */
-async function handleGoogleDocsSearchRequest(documentAlias, searchKeyword, userId) {
+    const documentTitle = lastDocument.filename || lastDocument.title || '현재 문서';
+    
     try {
-        console.log(`[GOOGLE DOCS SEARCH] 🔍 문서 '${documentAlias}'에서 '${searchKeyword}' 검색 요청`);
+        await interaction.update({ content: `📝 **'${documentTitle}'** 문서를 요약 중입니다...`, components: [] });
         
-        // documentAlias가 비어있으면 오류 반환
-        if (!documentAlias || !documentAlias.trim()) {
-            return `❌ **Google Docs 검색 실패**\n\n문서 별칭이 지정되지 않았습니다.\n\n💡 올바른 형식: "패스워드 문서에서 gmail 찾아줘"`;
-        }
+        const summary = await summarizeDocument(lastDocument.content, documentTitle);
         
-        const searchResult = await searchKeywordInDocument(documentAlias, searchKeyword);
+        const replyMessage = `📝 **'${documentTitle}' 문서 요약**\n\n${summary}`;
         
-        if (searchResult.totalMatches === 0) {
-            return `🔍 **검색 결과 없음**\n\n**문서:** ${searchResult.document.aliasName || searchResult.document.title}\n**키워드:** "${searchKeyword}"\n\n해당 키워드를 포함하는 내용을 찾을 수 없습니다.`;
-        }
-        
-        // 응답 메시지 생성
-        let responseMessage = `🔍 **Google Docs 검색 결과**\n\n`;
-        responseMessage += `**📄 문서:** ${searchResult.document.aliasName || searchResult.document.title}\n`;
-        responseMessage += `**🔎 검색어:** "${searchKeyword}"\n`;
-        responseMessage += `**📊 총 ${searchResult.totalMatches}개 결과 발견**\n\n`;
-        
-        // 각 검색 결과 표시 (최대 5개까지)
-        const maxResults = Math.min(searchResult.results.length, 5);
-        
-        for (let i = 0; i < maxResults; i++) {
-            const result = searchResult.results[i];
-            responseMessage += `**📍 결과 ${i + 1} (${result.matchLineNumber}번째 줄):**\n`;
-            responseMessage += '```\n';
-            
-            // 컨텍스트 라인들 표시
-            for (const contextLine of result.context) {
-                const prefix = contextLine.isMatch ? '→ ' : '  ';
-                const lineNum = contextLine.lineNumber.toString().padStart(3, ' ');
-                responseMessage += `${prefix}${lineNum}: ${contextLine.content}\n`;
-            }
-            
-            responseMessage += '```\n\n';
-        }
-        
-        // 결과가 5개보다 많으면 알림
-        if (searchResult.totalMatches > 5) {
-            responseMessage += `💡 총 ${searchResult.totalMatches}개 결과 중 처음 5개만 표시했습니다.\n`;
-        }
-        
-        return responseMessage;
-        
-    } catch (error) {
-        console.error(`[GOOGLE DOCS SEARCH] ❌ 검색 실패:`, error);
-        return `❌ **Google Docs 검색 실패**\n\n${error.message}\n\n💡 문서 별칭을 확인하거나 문서 공유 설정을 확인해주세요.`;
-    }
-}
+        await interaction.followUp(replyMessage);
 
-/**
- * Google Docs 키워드 검색 요청을 처리합니다. (이 함수는 messageHandler에서 이곳으로 이동했습니다)
- * @param {object} message - Discord 메시지 객체
- * @param {string} searchKeyword - 검색 키워드
- * @param {Map} docsSearchSessions - 세션 저장을 위한 Map 객체
- * @returns {Promise<string>} 처리 결과 메시지
- */
-async function handleGoogleDocsKeywordSearchRequest(message, searchKeyword, docsSearchSessions) {
-    try {
-        console.log(`[DOCS KEYWORD SEARCH] 🔍 사용자 ${message.author.tag}가 '${searchKeyword}' 검색 요청`);
-        
-        if (!searchKeyword.trim()) {
-            await message.reply('❌ **검색 키워드가 필요합니다!**\n\n예: "독스에서 보고서 찾아줘"');
-            return '검색 키워드 없음';
-        }
-        
-        const docs = await searchGoogleDocs(searchKeyword, 5);
-        
-        if (docs.length === 0) {
-            const noResultMessage = `🔍 **Google Docs 검색 결과**\n\n**검색어:** "${searchKeyword}"\n\n검색 결과가 없습니다.`;
-            await message.reply(noResultMessage);
-            return noResultMessage;
-        }
-        
-        const resultMessage = formatDocsSearchResults(searchKeyword, docs);
-        
-        const sessionId = `${message.author.id}_${Date.now()}`;
-        docsSearchSessions.set(sessionId, {
-            docs: docs,
-            userId: message.author.id,
-            keyword: searchKeyword,
-            timestamp: Date.now()
-        });
-
-        const buttons = docs.map((doc, i) =>
-            new ButtonBuilder()
-                .setCustomId(`select_doc_${sessionId}_${i}`)
-                .setLabel(`${i + 1}번 문서 읽기`)
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('📖')
-        );
-        
-        const actionRows = [];
-        for (let i = 0; i < buttons.length; i += 5) {
-            actionRows.push(new ActionRowBuilder().addComponents(buttons.slice(i, i + 5)));
-        }
-        
-        await message.reply({
-            content: resultMessage,
-            components: actionRows
-        });
-        
-        return resultMessage;
-        
     } catch (error) {
-        console.error(`[DOCS KEYWORD SEARCH] ❌ 검색 실패:`, error);
-        const errorMessage = `❌ **Google Docs 검색 실패**\n\n${error.message}\n\n💡 Google Docs 권한을 확인하거나 잠시 후 다시 시도해주세요.`;
-        await message.reply(errorMessage);
-        return errorMessage;
+        console.error(`[DOC SUMMARIZE] ❌ 문서 요약 중 오류 발생:`, error);
+        await interaction.followUp({ content: '❌ 문서 요약을 처리하는 중 오류가 발생했습니다.', ephemeral: true });
     }
 }
 
@@ -737,6 +586,157 @@ async function handleDocumentSummarizationRequest(message) {
     }
 }
 
+function searchInDocument(document, keyword) {
+    const { content, mimeType, title } = document;
+    console.log(`[SEARCH_DEBUG] Searching in document. Title: ${title}, MimeType: ${mimeType}`);
+    if (!content) return '';
+
+    let results = [];
+    const lines = content.split('\n');
+    const lowerCaseKeyword = keyword.toLowerCase();
+    
+    let matchCount = 0;
+    const contextAfter = 2; // 모든 문서 유형에 대해 아래 2줄의 컨텍스트를 표시
+    const maxMatches = 5;   // 최대 5개의 일치 항목을 표시
+
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().includes(lowerCaseKeyword)) {
+            if (matchCount >= maxMatches) {
+                results.push('> ... (일치하는 결과가 더 있지만 5개만 표시합니다)');
+                break;
+            }
+
+            let resultBlock = [];
+            const start = i;
+            const end = Math.min(lines.length - 1, i + contextAfter);
+
+            for (let j = start; j <= end; j++) {
+                const lineContent = lines[j] || '';
+                if (j === i) {
+                    resultBlock.push(`> **Line ${j + 1}:** ${lineContent}`);
+                } else {
+                    resultBlock.push(`> Line ${j + 1}: ${lineContent}`);
+                }
+            }
+            results.push(`**[매치 #${matchCount + 1}]**\n${resultBlock.join('\n')}`);
+            matchCount++;
+        }
+    }
+    return results.join('\n\n---\n\n');
+}
+
+async function getSmartKeywords(originalKeyword, isKorean) {
+    try {
+        const openai = getOpenAIClient();
+        
+        // 한글 키워드인지 자동 감지
+        const isKoreanKeyword = isKorean !== undefined ? isKorean : /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(originalKeyword);
+        
+        const systemPrompt = `You are a Search Query Expansion assistant. Your goal is to generate 2 highly relevant keywords based on an original search term.
+
+1.  **Analyze Intent**: Understand the user's likely intent behind the original keyword.
+2.  **Generate Keywords**: Provide up to 2 alternative keywords that a user might search for to find the same or related content.
+3.  **Strategy Selection**: 
+    - If the original keyword is Korean, prioritize English translation first, then Korean synonyms
+    - If the original keyword is English, prioritize Korean translation first, then English synonyms
+4.  **Format**: Your output **MUST** be a JSON object with "strategy" and "keywords" fields:
+    - strategy: "english" (for English translations), "korean_synonyms" (for Korean synonyms), "english_synonyms" (for English synonyms), or "korean" (for Korean translations)
+    - keywords: array of strings (up to 2 keywords)
+
+**Example 1:**
+Original Keyword: "패스워드"
+Your Output:
+{
+  "strategy": "english",
+  "keywords": ["password", "login"]
+}
+
+**Example 2:**
+Original Keyword: "마케팅 기획서"
+Your Output:
+{
+  "strategy": "korean_synonyms",
+  "keywords": ["광고 전략", "홍보 방안"]
+}
+
+**Example 3:**
+Original Keyword: "machine learning"
+Your Output:
+{
+  "strategy": "korean",
+  "keywords": ["머신러닝", "기계학습"]
+}
+`;
+
+        const completion = await openai.chat.completions.create({
+            model: 'gpt-4-turbo',
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: `Original Keyword: "${originalKeyword}"` }
+            ],
+            temperature: 0.4,
+            max_tokens: 150,
+            response_format: { type: "json_object" },
+        });
+
+        const response = JSON.parse(completion.choices[0].message.content);
+        console.log(`[SMART_SEARCH] 키워드 확장 결과 for '${originalKeyword}':`, response);
+        return response;
+    } catch (error) {
+        console.error(`[SMART_SEARCH] ❌ 스마트 검색 키워드 생성 실패:`, error);
+        return null;
+    }
+}
+
+async function handleSearchInDocument(interaction, document, keyword) {
+    try {
+        let searchResultText = searchInDocument(document, keyword);
+
+        // 검색 결과가 없을 경우 스마트 검색 적용
+        if (!searchResultText || searchResultText.trim() === '') {
+            await interaction.editReply({ content: `'${keyword}'에 대한 검색 결과가 없습니다. 스마트 검색으로 다시 시도합니다... 🧐` });
+            
+            const isKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(keyword);
+            const expansion = await getSmartKeywords(keyword, isKorean);
+            console.log(`[SMART_SEARCH_DEBUG] LLM generated keywords for '${keyword}':`, expansion);
+
+            let expandedSearchResults = [];
+            
+            if (expansion && expansion.keywords && expansion.keywords.length > 0) {
+                for (const newKeyword of expansion.keywords) {
+                    console.log(`[SMART_SEARCH_DEBUG] Searching again with new keyword: '${newKeyword}'`);
+                    const newResult = searchInDocument(document, newKeyword);
+                    console.log(`[SMART_SEARCH_DEBUG] Result for '${newKeyword}': ${newResult ? `Found ${newResult.length} chars` : 'Not Found'}`);
+                    if (newResult) {
+                         expandedSearchResults.push(`---\n**'${newKeyword}'(으)로 다시 검색한 결과:**\n${newResult}`);
+                    }
+                }
+                searchResultText = expandedSearchResults.join('\n');
+            }
+        }
+
+
+        if (!searchResultText || searchResultText.trim() === '') {
+            await interaction.editReply(`문서 '**${document.title || '제목 없음'}**'에서 키워드 '**${keyword}**'(으)로 검색된 내용이 없습니다.`);
+            return;
+        }
+
+        const truncatedResult = searchResultText.length > 3800 ? searchResultText.substring(0, 3800) + '...' : searchResultText;
+
+        const resultEmbed = new EmbedBuilder()
+            .setColor(0x0099FF)
+            .setTitle(`'${document.title || '제목 없음'}' 문서 내 검색 결과`)
+            .setDescription(`**검색 키워드:** \`${keyword}\`\n\n${truncatedResult}`)
+            .setFooter({ text: '검색이 완료되었습니다.'})
+            .setTimestamp();
+
+        await interaction.editReply({ embeds: [resultEmbed] });
+
+    } catch (error) {
+        console.error('[DOCUMENT SEARCH] 문서 내 검색 중 오류:', error);
+        await interaction.editReply('문서 내 검색 중 오류가 발생했습니다.');
+    }
+}
 
 /**
  * 날짜를 'YYYY년 MM월 DD일 HH:mm' 형식으로 포맷팅합니다.
@@ -760,8 +760,9 @@ module.exports = {
     createDocumentContext,
     summarizeDocument,
     handleDocumentRequest,
-    handleGoogleDocsRequest,
-    handleGoogleDocsSearchRequest, // 새로 추가된 export
-    handleGoogleDocsKeywordSearchRequest,
-    handleDocumentSummarizationRequest
+    handleSummarizeButton,
+    handleDocumentSummarizationRequest,
+    searchInDocument,
+    handleSearchInDocument,
+    getSmartKeywords
 };

@@ -6,15 +6,18 @@ const {google} = require('googleapis');
 
 // If modifying these scopes, delete token.json.
 const SCOPES = [
-    'https://www.googleapis.com/auth/calendar',           // 구글 캘린더 권한
-    'https://www.googleapis.com/auth/tasks',              // 구글 Tasks 권한
-    'https://www.googleapis.com/auth/documents.readonly', // 구글 Docs 읽기 전용 권한
-    'https://www.googleapis.com/auth/spreadsheets',       // 구글 Sheets 권한
-    'https://www.googleapis.com/auth/drive.readonly'      // 구글 Drive 읽기 전용 권한 (Google Docs 검색용)
+    'https://www.googleapis.com/auth/tasks',
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/documents.readonly',
+    'https://www.googleapis.com/auth/spreadsheets.readonly',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/presentations.readonly'
 ];
 
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');
 const CREDENTIALS_PATH = path.join(process.cwd(), 'credentials.json');
+
+let authClient = null;
 
 /**
  * Reads previously authorized credentials from the save file.
@@ -60,10 +63,13 @@ async function saveCredentials(client) {
  *
  */
 async function authorize() {
+  if (authClient) return authClient;
+
   try {
     let client = await loadSavedCredentialsIfExist();
     if (client) {
-      return client;
+      authClient = client;
+      return authClient;
     }
     client = await authenticate({
       scopes: SCOPES,
@@ -72,7 +78,8 @@ async function authorize() {
     if (client.credentials) {
       await saveCredentials(client);
     }
-    return client;
+    authClient = client;
+    return authClient;
   } catch (error) {
     console.error('Authentication failed:', error);
     if (error.message.includes('invalid_grant')) {
@@ -90,16 +97,29 @@ async function authorize() {
  */
 async function getAuthenticatedGoogleApis() {
     const auth = await authorize();
+
+    // Add an event listener for token refresh
+    auth.on('tokens', (tokens) => {
+        if (tokens.refresh_token) {
+            // A new refresh token might be issued, save it.
+            console.log('[AUTH] New refresh token received, saving...');
+            const existingPayload = JSON.parse(fs.readFileSync(TOKEN_PATH, 'utf8'));
+            existingPayload.refresh_token = tokens.refresh_token;
+            fs.writeFileSync(TOKEN_PATH, JSON.stringify(existingPayload));
+        }
+    });
+
     return {
         auth,
         drive: google.drive({ version: 'v3', auth }),
         docs: google.docs({ version: 'v1', auth }),
+        sheets: google.sheets({ version: 'v4', auth }),
+        slides: google.slides({ version: 'v1', auth }),
         tasks: google.tasks({ version: 'v1', auth }),
         calendar: google.calendar({ version: 'v3', auth })
     };
 }
 
 module.exports = {
-    authorize,
     getAuthenticatedGoogleApis
 };
