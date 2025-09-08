@@ -294,7 +294,14 @@ async function addTask(title) {
 }
 
 async function handleTaskRequest(message, classification) {
-    switch (classification.taskType) {
+    console.log(`📝 할일 요청 처리:`);
+    console.log(`- 전체 분류 결과:`, classification);
+    console.log(`- extractedInfo:`, classification.extractedInfo);
+    
+    const taskType = classification.extractedInfo?.taskType;
+    console.log(`- taskType: "${taskType}"`);
+    
+    switch (taskType) {
         case 'add':
             try {
                 const content = classification.extractedInfo.content;

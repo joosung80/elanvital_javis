@@ -23,9 +23,13 @@ function checkExplicitIntent(userInput) {
                 const period = extractPeriod(userInput);
                 return { category, extractedInfo: { scheduleType, period } };
             }
-            // DRIVE의 경우 OpenAI를 통해 상세 정보 추출 필요
+            // DRIVE와 TASK의 경우 OpenAI를 통해 상세 정보 추출 필요
             if (category === 'DRIVE') {
                 console.log(`🔄 DRIVE 분류 - OpenAI로 상세 정보 추출 진행`);
+                return null; // OpenAI 분류로 넘어가서 상세 정보 추출
+            }
+            if (category === 'TASK') {
+                console.log(`🔄 TASK 분류 - OpenAI로 상세 정보 추출 진행`);
                 return null; // OpenAI 분류로 넘어가서 상세 정보 추출
             }
             return { category, extractedInfo: {} };
