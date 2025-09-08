@@ -1,6 +1,6 @@
 const { authorize, listEvents, addEvent, deleteEvent, updateEvent, searchEvents } = require('../google-calendar');
 const { calculateMatchScore } = require('./similarityUtils');
-const { getOpenAIClient, logOpenAICall } = require('./openaiClient');
+const { askGPT, askGPTForJSON } = require('../services/gptService');
 
 /**
  * 자연어 텍스트를 Google Calendar 이벤트 데이터로 파싱합니다.
@@ -119,28 +119,15 @@ async function parseEventWithGemini(text) {
     try {
         // OpenAI API 호출 로그는 응답 후에 출력
         
-        const openai = getOpenAIClient();
-    const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: "당신은 한국어 자연어를 정확한 일정 데이터로 변환하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요."
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
-            ],
-            temperature: 0.1,
-            max_tokens: 300
-        });
-        
-        const jsonText = response.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
-        
-        logOpenAICall('gpt-4o-mini', response.usage, '일정 파싱');
-        
-        const parsedEvent = JSON.parse(jsonText);
+        const parsedEvent = await askGPTForJSON('SCHEDULE_PARSING', 
+            "당신은 한국어 자연어를 정확한 일정 데이터로 변환하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요.",
+            prompt,
+            {
+                temperature: 0.1,
+                max_tokens: 300,
+                purpose: '일정 파싱'
+            }
+        );
         console.log(`✅ 일정 파싱 완료: ${parsedEvent.summary || '제목 없음'}`);
         
         return parsedEvent;
@@ -236,26 +223,15 @@ async function getTimeRangeFromPeriod(period) {
     try {
         // OpenAI API 호출 로그는 응답 후에 출력
         
-        const openai = getOpenAIClient();
-    const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: "당신은 한국어 기간 표현을 정확한 날짜 범위로 변환하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요."
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
-            ],
-            temperature: 0.1,
-            max_tokens: 200
-        });
-        
-        const responseText = response.choices[0].message.content;
-        
-        logOpenAICall('gpt-4o-mini', response.usage, '시간 범위 파싱');
+        const responseText = await askGPT('TIME_RANGE_PARSING',
+            "당신은 한국어 기간 표현을 정확한 날짜 범위로 변환하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요.",
+            prompt,
+            {
+                temperature: 0.1,
+                max_tokens: 200,
+                purpose: '시간 범위 파싱'
+            }
+        );
         
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -643,19 +619,10 @@ async function parseDeleteRequest(text) {
     try {
         console.log(`[DELETE DEBUG] 🤖 OpenAI GPT-4o-mini API 호출 중...`);
         
-        const openai = getOpenAIClient();
-    const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                {
-                    role: "system",
-                    content: "당신은 한국어 일정 삭제 요청을 분석하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요."
-                },
-                {
-                    role: "user",
-                    content: prompt
-                }
-            ],
+        const response = await askGPTForJSON('SCHEDULE_PARSING',
+            "당신은 한국어 일정 삭제 요청을 분석하는 전문가입니다. 반드시 JSON 형식으로만 답변하세요.",
+            prompt,
+            {
             temperature: 0.1,
             max_tokens: 300
         });

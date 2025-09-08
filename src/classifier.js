@@ -1,4 +1,4 @@
-const { getOpenAIClient, logOpenAICall } = require('./utils/openaiClient');
+const { askGPTForJSON } = require('./services/gptService');
 
 // 명확한 다른 의도가 있는지 확인하는 함수
 function checkExplicitIntent(userInput) {
@@ -156,7 +156,6 @@ async function classifyUserInput(message, client) {
     
     const imageContext = context.lastImageUrl ? `The user has recently uploaded or interacted with an image.` : `There is no image context.`;
 
-    const openai = getOpenAIClient();
     const systemPrompt = `You are a message classification expert for a Discord bot. Your task is to analyze the user's message and current context, then classify it into one of the following categories and extract relevant information. Your response MUST be a JSON object.
 
 [CONTEXT]
@@ -195,18 +194,7 @@ ${formattedConversations}
 `;
 
     try {
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4-turbo",
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userInput }
-            ],
-            response_format: { type: "json_object" },
-        });
-
-        logOpenAICall('gpt-4-turbo', completion.usage, '메시지 분류');
-        
-        const result = JSON.parse(completion.choices[0].message.content);
+        const result = await askGPTForJSON('CLASSIFICATION', systemPrompt, userInput, { purpose: '메시지 분류' });
         console.log(`✅ AI 분류 결과: ${result.category}`);
         return result;
 

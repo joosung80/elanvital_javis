@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { MODEL_DESCRIPTIONS } = require('../config/models');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -27,7 +28,7 @@ module.exports = {
                     inline: false
                 },
                 {
-                    name: '🎨 이미지 생성 & 편집 (Gemini AI)',
+                    name: `🎨 이미지 생성 & 편집 (${MODEL_DESCRIPTIONS.GEMINI_MAIN})`,
                     value: '```\n"고양이 그림 그려줘"\n"태양계 인포그래픽 만들어줘"\n[이미지 업로드] "이걸 수정해줘"\n"더 밝게 만들어줘"\n```\n• ChatGPT 프롬프트 자동 개선\n• 메모리 기반 컨텍스트 활용\n• 고품질 현실적 이미지 생성',
                     inline: false
                 },
@@ -43,7 +44,7 @@ module.exports = {
                 },
                 {
                     name: '💬 일반 질문 & 대화',
-                    value: '• GPT-4o-mini 기반 지능형 답변\n• 문서 컨텍스트 활용 답변\n• 이전 대화 맥락 유지\n• 자연스러운 한국어 대화',
+                    value: `• ${MODEL_DESCRIPTIONS.GPT_MAIN} 기반 지능형 답변\n• 문서 컨텍스트 활용 답변\n• 이전 대화 맥락 유지\n• 자연스러운 한국어 대화`,
                     inline: false
                 },
                 {

@@ -2,7 +2,9 @@ const { GoogleGenAI } = require('@google/genai');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
 // 메모리 관련 함수들은 client.memory를 통해 접근
-const { getOpenAIClient, logOpenAICall, logGeminiCall } = require('./openaiClient');
+const { logGeminiCall } = require('./openaiClient');
+const { askGPT } = require('../services/gptService');
+const { getGeminiModel } = require('../config/models');
 
 // Initialize APIs (lazy loading)
 let genAI = null;
@@ -145,19 +147,11 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
 
 **Now, process the following request based on the rules and context provided. Remember to make it PHOTOREALISTIC unless explicitly told otherwise.**${contextInfo}`;
 
-        const openai = getOpenAIClient();
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: originalPrompt }
-            ],
+        const enhancedPrompt = await askGPT('IMAGE_PROMPT_ENHANCEMENT', systemPrompt, originalPrompt, {
             max_tokens: 150,
-            temperature: 0.7
+            temperature: 0.7,
+            purpose: '이미지 프롬프트 개선'
         });
-
-        logOpenAICall('gpt-4o-mini', response.usage, '이미지 프롬프트 개선');
-        const enhancedPrompt = response.choices[0].message.content.trim();
         console.log(`✅ 프롬프트 보강 완료 (${enhancedPrompt.length}자)`);
         console.log(`📄 "${enhancedPrompt}"`);
         
@@ -275,8 +269,9 @@ async function handleImageRequest(message, promptContent) {
         
         const genAI = getGoogleGenAI();
         const startTime = Date.now();
+        const model = getGeminiModel('IMAGE_GENERATION');
         const result = await genAI.models.generateContent({
-            model: "gemini-2.5-flash-image-preview",
+            model: model,
             contents,
         });
         const endTime = Date.now();
@@ -286,7 +281,7 @@ async function handleImageRequest(message, promptContent) {
         const usageMetadata = result.response?.usageMetadata || result.usageMetadata || result.candidates?.[0]?.usageMetadata;
         
         const purpose = isImageEdit ? '이미지 편집' : '이미지 생성';
-        logGeminiCall('gemini-2.5-flash-image-preview', duration, purpose, usageMetadata);
+        logGeminiCall(model, duration, purpose, usageMetadata);
         
         console.log(`✅ ${purpose} 완료`);
 

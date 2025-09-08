@@ -1,5 +1,5 @@
 const fetch = require('node-fetch');
-const { getOpenAIClient } = require('./openaiClient');
+const { askGPT } = require('../services/gptService');
 
 /**
  * 모바일 친화적인 메시지 분할 함수
@@ -89,8 +89,6 @@ async function handleGeneralRequest(message) {
             ? `The user has recently read a document titled "${lastDocument.title}".`
             : "There is no document context.";
 
-        const openai = getOpenAIClient();
-
         const systemPrompt = `You are a helpful and friendly conversational AI assistant named 'Elanvital Agent'.
 - Your primary language is Korean.
 - Be concise and clear in your answers.
@@ -102,15 +100,7 @@ async function handleGeneralRequest(message) {
 ${formattedConversations}
 `;
 
-        const completion = await openai.chat.completions.create({
-            model: "gpt-4-turbo",
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: content }
-            ]
-        });
-        
-        const botResponse = completion.choices[0].message.content;
+        const botResponse = await askGPT('GENERAL_CHAT', systemPrompt, content);
 
         return botResponse;
 

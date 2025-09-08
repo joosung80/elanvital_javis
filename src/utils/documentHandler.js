@@ -10,7 +10,7 @@ const mammoth = require('mammoth');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
-const { getOpenAIClient, logOpenAICall } = require('./openaiClient');
+const { askGPT, askGPTForJSON } = require('../services/gptService');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 /**
@@ -328,14 +328,6 @@ async function parseMultipleDocuments(attachments) {
 async function summarizeDocument(text, filename, summaryType = 'detailed') {
     console.log(`[DOCUMENT SUMMARY] 📝 문서 요약 시작: ${filename} (${summaryType})`);
     
-    let openai;
-    try {
-        openai = getOpenAIClient();
-    } catch (error) {
-        console.log(`[DOCUMENT SUMMARY] ⚠️ OpenAI 클라이언트 초기화 실패 - 기본 요약 반환:`, error.message);
-        const lines = text.split('\n').filter(line => line.trim().length > 0);
-        return `**기본 요약 (OpenAI 없음)**\n\n파일명: ${filename}\n단어 수: ${text.split(/\s+/).length}개\n첫 부분: ${lines.slice(0, 5).join(' ').substring(0, 300)}...`;
-    }
     
     try {
         let systemPrompt = '';
@@ -381,18 +373,11 @@ async function summarizeDocument(text, filename, summaryType = 'detailed') {
 내용:
 ${text}`;
 
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
-            ],
+        const summary = await askGPT('KEYWORD_GENERATION', systemPrompt, userPrompt, {
             temperature: 0.3,
-            max_tokens: 1500
+            max_tokens: 1500,
+            purpose: '문서 요약'
         });
-        
-        logOpenAICall('gpt-4o-mini', response.usage, '스마트 키워드 생성');
-        const summary = response.choices[0].message.content;
         
         console.log(`[DOCUMENT SUMMARY] ✅ 요약 완료: ${summary.length}자`);
         return summary;
@@ -563,20 +548,12 @@ async function handleDocumentSummarizationRequest(message) {
     
     try {
         await message.channel.sendTyping();
-        const openai = getOpenAIClient();
         const systemPrompt = "You are a helpful assistant who summarizes documents. Summarize the following document content concisely, in Korean, focusing on the key points.";
 
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Please summarize the following document:\n\nTitle: ${lastDocument.title}\n\nContent:\n${lastDocument.content}` }
-            ],
-            temperature: 0.5,
-        });
-
-        logOpenAICall('gpt-4o-mini', response.usage, '문서 요약');
-        const summary = response.choices[0].message.content;
+        const summary = await askGPT('DOCUMENT_SUMMARY', systemPrompt, 
+            `Please summarize the following document:\n\nTitle: ${lastDocument.title}\n\nContent:\n${lastDocument.content}`,
+            { temperature: 0.5, purpose: '문서 요약' }
+        );
         const replyMessage = `📝 **'${lastDocument.title}' 문서 요약**\n\n${summary}`;
         await message.reply(replyMessage);
 
@@ -631,7 +608,6 @@ function searchInDocument(document, keyword) {
 
 async function getSmartKeywords(originalKeyword, isKorean) {
     try {
-        const openai = getOpenAIClient();
         
         // 한글 키워드인지 자동 감지
         const isKoreanKeyword = isKorean !== undefined ? isKorean : /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(originalKeyword);
@@ -672,20 +648,14 @@ Your Output:
 }
 `;
 
-        const completion = await openai.chat.completions.create({
-            model: 'gpt-4-turbo',
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `Original Keyword: "${originalKeyword}"` }
-            ],
-            temperature: 0.4,
-            max_tokens: 150,
-            response_format: { type: "json_object" },
-        });
-        
-        logOpenAICall('gpt-4-turbo', completion.usage, '스마트 키워드 확장');
-
-        const response = JSON.parse(completion.choices[0].message.content);
+        const response = await askGPTForJSON('KEYWORD_EXPANSION', systemPrompt, 
+            `Original Keyword: "${originalKeyword}"`,
+            { 
+                temperature: 0.4, 
+                max_tokens: 150,
+                purpose: '스마트 키워드 확장'
+            }
+        );
         console.log(`[SMART_SEARCH] 🧠 "${originalKeyword}" → [${response.keywords.join(', ')}] (${response.strategy})`);
         return response;
     } catch (error) {

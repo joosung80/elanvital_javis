@@ -6,7 +6,6 @@
 const { google } = require('googleapis');
 const { getAuthenticatedGoogleApis } = require('../google-auth');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
-const { getOpenAIClient } = require('./openaiClient');
 const { searchInDocument, getSmartKeywords } = require('./documentHandler');
 const { readDocContent, readSheetContent, readSlidesContent, MIME_TYPES, getReadableMimeType } = require('./driveReadUtils');
 
