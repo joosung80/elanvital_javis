@@ -10,7 +10,7 @@ const { getGPTModel } = require('../config/models');
  * @param {string} feature - 기능 이름 (FEATURE_MODELS의 키)
  * @param {Array} messages - 메시지 배열 [{role: 'system', content: '...'}, {role: 'user', content: '...'}]
  * @param {Object} options - 추가 옵션
- * @param {number} options.temperature - 온도 (기본값: 0.7)
+ * @param {number} options.temperature - 온도 (기본값: 모델별 기본값 사용)
  * @param {number} options.max_tokens - 최대 토큰 (기본값: null)
  * @param {Object} options.response_format - 응답 형식 (기본값: null)
  * @param {string} options.purpose - 로그용 목적 설명 (기본값: feature)
@@ -18,7 +18,7 @@ const { getGPTModel } = require('../config/models');
  */
 async function callGPT(feature, messages, options = {}) {
     const {
-        temperature = 0.7,
+        temperature = null, // 기본값을 null로 설정하여 모델별 기본값 사용
         max_tokens = null,
         response_format = null,
         purpose = feature
@@ -31,11 +31,11 @@ async function callGPT(feature, messages, options = {}) {
         // API 호출 옵션 구성
         const apiOptions = {
             model: model,
-            messages: messages,
-            temperature: temperature
+            messages: messages
         };
 
-        // 선택적 옵션 추가
+        // 선택적 옵션 추가 (값이 있을 때만)
+        if (temperature !== null) apiOptions.temperature = temperature;
         if (max_tokens) apiOptions.max_tokens = max_tokens;
         if (response_format) apiOptions.response_format = response_format;
 
@@ -49,7 +49,15 @@ async function callGPT(feature, messages, options = {}) {
         return response;
 
     } catch (error) {
-        console.error(`❌ GPT 호출 실패 (${feature}):`, error.message);
+        const model = getGPTModel(feature);
+        console.error(`❌ GPT 호출 실패 (${feature}, ${model}):`, error.message);
+        
+        // 모델 관련 에러인 경우 추가 정보 제공
+        if (error.message.includes('model') || error.message.includes('temperature') || error.message.includes('Unsupported')) {
+            console.error(`🔧 모델 호환성 문제 가능성: ${model}`);
+            console.error(`📋 사용된 옵션:`, apiOptions);
+        }
+        
         throw error;
     }
 }

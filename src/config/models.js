@@ -12,7 +12,7 @@ const GPT_MODELS = {
     ADVANCED: 'gpt-4.1',
     
     // 최신 모델 (향후 업그레이드용)
-    LATEST: 'gpt-4o'
+    LATEST: 'gpt-5-mini'
 };
 
 // Google Gemini 모델 설정
@@ -21,10 +21,10 @@ const GEMINI_MODELS = {
     IMAGE: 'gemini-2.5-flash-image-preview',
     
     // 텍스트 처리용 (향후 확장용)
-    TEXT: 'gemini-1.5-flash',
+    TEXT: 'gemini-2.5-flash',
     
     // 프로 버전 (고성능 작업용)
-    PRO: 'gemini-1.5-pro'
+    PRO: 'gemini-2.5-pro'
 };
 
 // 기능별 모델 매핑
