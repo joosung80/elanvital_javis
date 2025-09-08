@@ -240,7 +240,15 @@ async function handleCombinedSearch(message, docKeyword, inDocKeyword, targetTyp
  * @param {Map} driveSearchSessions - 세션 저장을 위한 Map 객체
  */
 async function handleDriveSearchRequest(message, classification, driveSearchSessions) {
+    console.log(`🔍 드라이브 검색 요청 처리:`);
+    console.log(`- 전체 분류 결과:`, classification);
+    console.log(`- extractedInfo:`, classification.extractedInfo);
+    
     const { searchKeyword, targetType, inDocumentKeyword } = classification.extractedInfo;
+    
+    console.log(`- searchKeyword: "${searchKeyword}"`);
+    console.log(`- inDocumentKeyword: "${inDocumentKeyword}"`);
+    console.log(`- targetType: "${targetType}"`);
 
     if (!searchKeyword || searchKeyword.trim() === '') {
         await message.reply('무엇을 검색할지 알려주세요! (예: "드라이브에서 마케팅 기획안 찾아줘")');

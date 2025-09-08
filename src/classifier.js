@@ -10,18 +10,29 @@ function checkExplicitIntent(userInput) {
         MEMORY: ['기억', '저장', '메모리', '아까', '전에', '이전에']
     };
 
+    console.log(`🔍 명시적 의도 확인: "${userInput}"`);
+    
     for (const [category, keywords] of Object.entries(explicitKeywords)) {
-        if (keywords.some(keyword => userInput.includes(keyword))) {
+        const matchedKeywords = keywords.filter(keyword => userInput.includes(keyword));
+        if (matchedKeywords.length > 0) {
+            console.log(`✅ ${category} 키워드 매칭: [${matchedKeywords.join(', ')}]`);
+            
             // SCHEDULE의 경우 scheduleType과 period도 함께 판단
             if (category === 'SCHEDULE') {
                 const scheduleType = determineScheduleType(userInput);
                 const period = extractPeriod(userInput);
                 return { category, extractedInfo: { scheduleType, period } };
             }
+            // DRIVE의 경우 OpenAI를 통해 상세 정보 추출 필요
+            if (category === 'DRIVE') {
+                console.log(`🔄 DRIVE 분류 - OpenAI로 상세 정보 추출 진행`);
+                return null; // OpenAI 분류로 넘어가서 상세 정보 추출
+            }
             return { category, extractedInfo: {} };
         }
     }
     
+    console.log(`❌ 명시적 의도 없음 - OpenAI 분류로 진행`);
     return null;
 }
 
