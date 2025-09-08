@@ -4,7 +4,7 @@ const { handleImageRequest } = require('../utils/imageHandler');
 const { handleDriveSearchRequest } = require('../utils/driveHandler');
 const { handleScheduleRequest } = require('../utils/scheduleHandler');
 const { handleTaskRequest } = require('../utils/taskHandler');
-const { handleMemoryRequest } = require('../commands/memory');
+// const { handleMemoryRequest } = require('../commands/memory'); // TODO: 구현 필요
 const { handleGeneralRequest } = require('../utils/generalHandler');
 const { transcribeAudio } = require('../utils/voiceHandler');
 
@@ -18,7 +18,7 @@ async function handleMessageCreate(message, client) {
         const attachment = message.attachments.first();
         if (attachment.contentType.startsWith('audio/')) {
             try {
-                actualContent = await transcribeAudio(attachment.url);
+                actualContent = await transcribeAudio(attachment.url, attachment.name);
                 await message.reply(`> 🔊 **음성 메시지:** "${actualContent}"`);
             } catch (error) {
                 await message.reply('음성 메시지를 텍스트로 변환하는 데 실패했습니다.');
@@ -28,7 +28,7 @@ async function handleMessageCreate(message, client) {
     }
 
     try {
-        const classification = await classifyUserInput(message, client);
+        const classification = await classifyUserInput(message, client, actualContent);
         console.log('[CLASSIFY] ✅ 분류 결과:', classification);
 
         let botResponseContent = null;
@@ -47,14 +47,15 @@ async function handleMessageCreate(message, client) {
                 await handleTaskRequest(message, classification, client.taskSessions);
                 break;
             case 'MEMORY':
-                botResponseContent = await handleMemoryRequest(message);
+                // TODO: handleMemoryRequest 함수 구현 필요
+                botResponseContent = "메모리 기능은 현재 구현 중입니다.";
                 break;
             case 'IMAGE':
-                await handleImageRequest(message);
+                await handleImageRequest(message, actualContent);
                 break;
             case 'GENERAL':
             default:
-                botResponseContent = await handleGeneralRequest(message);
+                botResponseContent = await handleGeneralRequest(message, actualContent);
                 break;
         }
 

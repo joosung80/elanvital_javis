@@ -67,13 +67,14 @@ async function downloadFileContent(url, contentType) {
  * @param {string} userId - 사용자 ID
  * @returns {Object} 처리 결과
  */
-async function handleGeneralRequest(message) {
+async function handleGeneralRequest(message, actualContent = null) {
     const { client, author, content } = message;
     const userId = author.id;
+    const userInput = actualContent || content;
     
     console.log('[GENERAL_DEBUG] 🤖 일반 질문 처리 시작');
     console.log(`[GENERAL_DEBUG] 👤 사용자 ID: ${userId}`);
-    console.log(`[GENERAL_DEBUG] 💬 질문: "${content}"`);
+    console.log(`[GENERAL_DEBUG] 💬 질문: "${userInput}"`);
     console.log(`[GENERAL_DEBUG] 📎 첨부파일 수: ${message.attachments.size}`);
 
     try {
@@ -100,7 +101,7 @@ async function handleGeneralRequest(message) {
 ${formattedConversations}
 `;
 
-        const botResponse = await askGPT('GENERAL_CHAT', systemPrompt, content);
+        const botResponse = await askGPT('GENERAL_CHAT', systemPrompt, userInput);
 
         return botResponse;
 

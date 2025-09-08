@@ -100,9 +100,9 @@ function extractPeriod(userInput) {
     return userInput;
 }
 
-async function classifyUserInput(message, client) {
+async function classifyUserInput(message, client, actualContent = null) {
     const userId = message.author.id;
-    const userInput = message.content;
+    const userInput = actualContent || message.content;
 
     const context = client.memory.getUserMemory(userId);
     const recentConversations = client.memory.getRecentConversations(userId);
