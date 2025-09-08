@@ -293,7 +293,7 @@ async function addTask(title) {
     return response.data;
 }
 
-async function handleTaskRequest(message, classification) {
+async function handleTaskRequest(message, classification, taskSessions) {
     console.log(`📝 할일 요청 처리:`);
     console.log(`- 전체 분류 결과:`, classification);
     console.log(`- extractedInfo:`, classification.extractedInfo);
@@ -355,6 +355,8 @@ async function handleTaskRequest(message, classification) {
  * @param {object} message - Discord 메시지 객체
  */
 async function executeTaskList(message) {
+    const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+    
     try {
         const { tasks } = await getAuthenticatedGoogleApis();
         const taskLists = await tasks.tasklists.list({ maxResults: 10 });
@@ -377,12 +379,42 @@ async function executeTaskList(message) {
             return "현재 활성 할 일이 없습니다.";
         }
 
+        // 할일 목록을 세션에 저장 (버튼 처리용)
+        const sessionId = cacheTasksForCompletion(taskItems.map(task => ({
+            ...task,
+            tasklistId: taskListId
+        })));
+
         let reply = "📝 **현재 할 일 목록입니다!**\n\n";
         taskItems.forEach((task, index) => {
             reply += `${index + 1}. ${task.title}\n`;
         });
 
-        await message.reply(reply);
+        // 버튼 생성 (최대 5개씩 행으로 나누어 표시)
+        const buttons = [];
+        const maxButtons = Math.min(taskItems.length, 25); // Discord 최대 25개 버튼 제한
+        
+        for (let i = 0; i < maxButtons; i++) {
+            const button = new ButtonBuilder()
+                .setCustomId(`complete_task_${sessionId}_${i}`)
+                .setLabel(`${i + 1}번 ☑️`)
+                .setStyle(ButtonStyle.Success);
+            buttons.push(button);
+        }
+
+        // 버튼을 5개씩 행으로 나누기
+        const rows = [];
+        for (let i = 0; i < buttons.length; i += 5) {
+            const row = new ActionRowBuilder()
+                .addComponents(buttons.slice(i, i + 5));
+            rows.push(row);
+        }
+
+        await message.reply({
+            content: reply,
+            components: rows
+        });
+
         return reply;
 
     } catch (error) {
@@ -393,30 +425,83 @@ async function executeTaskList(message) {
 }
 
 
+
 /**
- * Google Tasks API를 사용하여 할 일을 완료 처리
- * @param {string} sessionId - 현재 세션 ID
- * @param {number} taskIndex - 완료할 할 일의 인덱스
- * @returns {Promise<{success: boolean, message: string, task: object}>}
+ * 할일 완료 버튼 클릭을 처리합니다.
+ * @param {object} interaction - Discord 인터랙션 객체
  */
-async function executeTaskComplete(sessionId, taskIndex) {
-    const tasks = taskSessions.get(sessionId);
-    if (!tasks) {
-        return { success: false, message: '세션이 만료되었거나 유효하지 않습니다. 다시 목록을 조회해주세요.' };
+async function handleTaskCompleteButton(interaction) {
+    const customId = interaction.customId;
+    
+    // complete_task_sessionId_taskIndex 형태 파싱
+    const parts = customId.split('_');
+    if (parts.length < 4) {
+        await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
+        return;
     }
-
-    if (taskIndex < 0 || taskIndex >= tasks.length) {
-        return { success: false, message: '잘못된 번호를 선택했습니다.' };
-    }
-
-    const taskToComplete = tasks[taskIndex];
+    
+    const sessionId = parts.slice(2, -1).join('_'); // sessionId 부분
+    const taskIndex = parseInt(parts[parts.length - 1]); // 마지막 부분이 taskIndex
+    
+    console.log(`[TASK BUTTON] 할일 완료 요청 - 세션: ${sessionId}, 인덱스: ${taskIndex}`);
+    
     try {
-        const completed = await completeTask(taskToComplete.id, taskToComplete.tasklistId);
-        taskSessions.delete(sessionId); // Clear session after successful completion
-        return { success: true, message: `✅ **'${taskToComplete.title}'** 할 일을 완료처리 했습니다.`, task: completed };
+        const result = await executeTaskComplete(sessionId, taskIndex);
+        
+        if (result.success) {
+            // 성공 시 원본 메시지 업데이트
+            const originalMessage = interaction.message;
+            const originalContent = originalMessage.content;
+            
+            // 완료된 할일을 취소선으로 표시
+            const lines = originalContent.split('\n');
+            const taskLineIndex = lines.findIndex(line => line.startsWith(`${taskIndex + 1}.`));
+            
+            if (taskLineIndex !== -1) {
+                lines[taskLineIndex] = lines[taskLineIndex].replace(
+                    /^(\d+\.\s)(.+)$/,
+                    '$1~~$2~~ ✅'
+                );
+                
+                const updatedContent = lines.join('\n');
+                
+                // 버튼 비활성화
+                const updatedComponents = originalMessage.components.map(row => {
+                    const newRow = new (require('discord.js').ActionRowBuilder)();
+                    row.components.forEach(button => {
+                        const newButton = new (require('discord.js').ButtonBuilder)()
+                            .setCustomId(button.customId)
+                            .setLabel(button.label)
+                            .setStyle(button.style);
+                        
+                        if (button.customId === customId) {
+                            newButton.setDisabled(true).setLabel(`${taskIndex + 1}번 완료됨`);
+                        }
+                        
+                        newRow.addComponents(newButton);
+                    });
+                    return newRow;
+                });
+                
+                await interaction.update({
+                    content: updatedContent,
+                    components: updatedComponents
+                });
+                
+                // 별도 메시지로 완료 알림
+                await interaction.followUp({ 
+                    content: `${interaction.user.toString()} ${result.message}`, 
+                    ephemeral: false 
+                });
+            } else {
+                await interaction.reply({ content: result.message, ephemeral: true });
+            }
+        } else {
+            await interaction.reply({ content: result.message, ephemeral: true });
+        }
     } catch (error) {
-        console.error('Error executing task completion:', error);
-        return { success: false, message: '❌ 할 일 완료 처리에 실패했습니다.' };
+        console.error('Task completion button error:', error);
+        await interaction.reply({ content: '❌ 할일 완료 처리 중 오류가 발생했습니다.', ephemeral: true });
     }
 }
 
@@ -430,4 +515,5 @@ module.exports = {
     searchAndCacheTasks,
     parseMultipleTasks,
     handleTaskRequest,
+    handleTaskCompleteButton,
 };

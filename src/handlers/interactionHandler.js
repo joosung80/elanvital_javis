@@ -1,5 +1,5 @@
 const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-const { handleTaskButton } = require('../utils/taskHandler');
+const { handleTaskCompleteButton } = require('../utils/taskHandler');
 const { handleDeleteConfirmation, quickDeleteEvent } = require('../utils/scheduleHandler');
 const { handleDriveReadButton } = require('../utils/driveHandler');
 const { handleSummarizeButton, handleSearchInDocument } = require('../utils/documentHandler');
@@ -38,8 +38,11 @@ module.exports = {
             console.log(`[INTERACTION] 🔘 버튼 클릭: ${customId}`);
 
             try {
-                if (customId.startsWith('select_task_')) {
-                    await handleTaskButton(interaction, client.taskSessions);
+                if (customId.startsWith('complete_task_')) {
+                    await handleTaskCompleteButton(interaction);
+                } else if (customId.startsWith('select_task_')) {
+                    // 기존 select_task_ 처리 (필요시 유지)
+                    console.log('Legacy select_task_ button clicked');
                 } else if (customId.startsWith('delete_schedule_')) {
                     await handleDeleteConfirmation(interaction, client.scheduleSessions);
                 } else if (customId.startsWith('quick_delete_')) {
