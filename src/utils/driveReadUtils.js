@@ -7,6 +7,24 @@ const MIME_TYPES = {
     slides: 'application/vnd.google-apps.presentation',
 };
 
+/**
+ * 마임타입을 사람이 읽기 좋은 형태로 변환
+ * @param {string} mimeType - Google Drive 마임타입
+ * @returns {string} 사람이 읽기 좋은 형태
+ */
+function getReadableMimeType(mimeType) {
+    switch (mimeType) {
+        case MIME_TYPES.docs:
+            return 'Docs';
+        case MIME_TYPES.sheets:
+            return 'Sheets';
+        case MIME_TYPES.slides:
+            return 'Slides';
+        default:
+            return 'Unknown';
+    }
+}
+
 async function readDocContent(documentId) {
     const { docs } = await getAuthenticatedGoogleApis();
     const response = await docs.documents.get({ documentId });
@@ -57,5 +75,6 @@ module.exports = {
     readDocContent,
     readSheetContent,
     readSlidesContent,
-    MIME_TYPES
+    MIME_TYPES,
+    getReadableMimeType
 };

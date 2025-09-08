@@ -8,7 +8,7 @@ const { getAuthenticatedGoogleApis } = require('../google-auth');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const { getOpenAIClient } = require('./openaiClient');
 const { searchInDocument, getSmartKeywords } = require('./documentHandler');
-const { readDocContent, readSheetContent, readSlidesContent, MIME_TYPES } = require('./driveReadUtils');
+const { readDocContent, readSheetContent, readSlidesContent, MIME_TYPES, getReadableMimeType } = require('./driveReadUtils');
 
 
 async function searchDrive(keyword, targetType = 'all') {
@@ -34,7 +34,7 @@ async function searchDrive(keyword, targetType = 'all') {
         query += ` and (${mimeQueries.join(' or ')})`;
     }
 
-    console.log(`[DRIVE SEARCH] 쿼리 실행: ${query}`);
+    console.log(`[DRIVE] 🔍 "${keyword}" 검색 중...`);
 
     const res = await drive.files.list({
         q: query,
@@ -129,7 +129,8 @@ async function handleCombinedSearch(message, docKeyword, inDocKeyword, targetTyp
 
         // Step 2: Read the single document
         const file = files[0];
-        await statusMessage.edit(`✅ **문서 확인:** '${file.name}'(을)를 찾았습니다! 이제 내부에서 '${inDocKeyword}' 키워드를 검색합니다...`);
+        const fileType = getReadableMimeType(file.mimeType);
+        await statusMessage.edit(`✅ **문서 확인:** '${file.name}' (${fileType})(을)를 찾았습니다! 이제 내부에서 '${inDocKeyword}' 키워드를 검색합니다...`);
         
         let fileContent = '';
         if (file.mimeType === MIME_TYPES.docs) fileContent = await readDocContent(file.id);
@@ -298,16 +299,13 @@ async function handleDriveReadButton(interaction, driveSearchSessions) {
         const file = session.files[fileIndex];
         
         let fileContent = '';
-        let fileType = '';
+        const fileType = getReadableMimeType(file.mimeType);
         if (file.mimeType === MIME_TYPES.docs) {
             fileContent = await readDocContent(file.id);
-            fileType = 'Google Docs';
         } else if (file.mimeType === MIME_TYPES.sheets) {
             fileContent = await readSheetContent(file.id);
-            fileType = 'Google Sheets';
         } else if (file.mimeType === MIME_TYPES.slides) {
             fileContent = await readSlidesContent(file.id);
-            fileType = 'Google Slides';
         } else {
             throw new Error('지원하지 않는 파일 형식입니다.');
         }

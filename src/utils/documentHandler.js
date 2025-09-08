@@ -588,7 +588,11 @@ async function handleDocumentSummarizationRequest(message) {
 
 function searchInDocument(document, keyword) {
     const { content, mimeType, title } = document;
-    console.log(`[SEARCH_DEBUG] Searching in document. Title: ${title}, MimeType: ${mimeType}`);
+    const readableType = mimeType === 'application/vnd.google-apps.document' ? 'Docs' 
+                       : mimeType === 'application/vnd.google-apps.spreadsheet' ? 'Sheets'
+                       : mimeType === 'application/vnd.google-apps.presentation' ? 'Slides' 
+                       : 'Unknown';
+    console.log(`[SEARCH] 📄 "${title}" (${readableType})에서 "${keyword}" 검색 중...`);
     if (!content) return '';
 
     let results = [];
@@ -596,7 +600,7 @@ function searchInDocument(document, keyword) {
     const lowerCaseKeyword = keyword.toLowerCase();
     
     let matchCount = 0;
-    const contextAfter = 2; // 모든 문서 유형에 대해 아래 2줄의 컨텍스트를 표시
+    const contextAfter = 3; // 모든 문서 유형에 대해 아래 3줄의 컨텍스트를 표시
     const maxMatches = 5;   // 최대 5개의 일치 항목을 표시
 
     for (let i = 0; i < lines.length; i++) {
@@ -680,7 +684,7 @@ Your Output:
         });
 
         const response = JSON.parse(completion.choices[0].message.content);
-        console.log(`[SMART_SEARCH] 키워드 확장 결과 for '${originalKeyword}':`, response);
+        console.log(`[SMART_SEARCH] 🧠 "${originalKeyword}" → [${response.keywords.join(', ')}] (${response.strategy})`);
         return response;
     } catch (error) {
         console.error(`[SMART_SEARCH] ❌ 스마트 검색 키워드 생성 실패:`, error);
@@ -698,15 +702,12 @@ async function handleSearchInDocument(interaction, document, keyword) {
             
             const isKorean = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(keyword);
             const expansion = await getSmartKeywords(keyword, isKorean);
-            console.log(`[SMART_SEARCH_DEBUG] LLM generated keywords for '${keyword}':`, expansion);
 
             let expandedSearchResults = [];
             
             if (expansion && expansion.keywords && expansion.keywords.length > 0) {
                 for (const newKeyword of expansion.keywords) {
-                    console.log(`[SMART_SEARCH_DEBUG] Searching again with new keyword: '${newKeyword}'`);
                     const newResult = searchInDocument(document, newKeyword);
-                    console.log(`[SMART_SEARCH_DEBUG] Result for '${newKeyword}': ${newResult ? `Found ${newResult.length} chars` : 'Not Found'}`);
                     if (newResult) {
                          expandedSearchResults.push(`---\n**'${newKeyword}'(으)로 다시 검색한 결과:**\n${newResult}`);
                     }
