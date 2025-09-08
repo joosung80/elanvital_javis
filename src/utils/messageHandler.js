@@ -41,7 +41,7 @@ async function handleMessageCreate(message, client) {
                 await handleDriveSearchRequest(message, classification, client.driveSearchSessions);
                 break;
             case 'SCHEDULE':
-                await handleScheduleRequest(message, classification, client.scheduleSessions);
+                await handleScheduleRequest(message, classification);
                 break;
             case 'TASK':
                 await handleTaskRequest(message, classification, client.taskSessions);

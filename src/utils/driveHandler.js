@@ -120,65 +120,111 @@ async function handleCombinedSearch(message, docKeyword, inDocKeyword, targetTyp
             return;
         }
 
-        if (files.length > 1) {
-            await statusMessage.edit(`**⚠️ 통합 검색 중지:** '${docKeyword}'(으)로 **${files.length}개**의 문서가 검색되었습니다. 자동 진행을 위해선 하나의 문서만 특정되어야 합니다.\n우선 문서 목록부터 보여드릴게요. 읽고 싶은 문서를 선택한 후, '이 문서에서 검색' 버튼을 이용해주세요.`);
-            const { embed, components } = formatDriveSearchResults(docKeyword, files, message.author.id, message.client.driveSearchSessions);
-            await message.channel.send({ embeds: [embed], components });
-            return;
+        // 최대 3개 문서까지 처리
+        const maxDocuments = Math.min(files.length, 3);
+        const documentsToProcess = files.slice(0, maxDocuments);
+
+        if (documentsToProcess.length > 1) {
+            await statusMessage.edit(`📚 **다중 문서 검색:** '${docKeyword}'(으)로 **${documentsToProcess.length}개** 문서를 찾았습니다. 각 문서에서 '${inDocKeyword}' 키워드를 검색합니다...`);
+        } else {
+            const fileType = getReadableMimeType(documentsToProcess[0].mimeType);
+            await statusMessage.edit(`✅ **문서 확인:** '${documentsToProcess[0].name}' (${fileType})(을)를 찾았습니다! 이제 내부에서 '${inDocKeyword}' 키워드를 검색합니다...`);
         }
 
-        // Step 2: Read the single document
-        const file = files[0];
-        const fileType = getReadableMimeType(file.mimeType);
-        await statusMessage.edit(`✅ **문서 확인:** '${file.name}' (${fileType})(을)를 찾았습니다! 이제 내부에서 '${inDocKeyword}' 키워드를 검색합니다...`);
-        
-        let fileContent = '';
-        if (file.mimeType === MIME_TYPES.docs) fileContent = await readDocContent(file.id);
-        else if (file.mimeType === MIME_TYPES.sheets) fileContent = await readSheetContent(file.id);
-        else if (file.mimeType === MIME_TYPES.slides) fileContent = await readSlidesContent(file.id);
+        // Step 2: Process multiple documents
+        let allResults = [];
+        let processedCount = 0;
+        let failedCount = 0;
 
-        if (!fileContent) {
-            failureSummary.push(`1️⃣ **문서 읽기 실패:** '${file.name}' 문서는 찾았지만, 내용을 읽어올 수 없었습니다.`);
-            failureSummary.push(`2️⃣ **검색 중단:** 따라서 문서 내 키워드 검색을 진행할 수 없습니다.`);
-            await statusMessage.edit({ content: failureSummary.join('\n'), embeds: [] });
-            return;
-        }
+        for (const file of documentsToProcess) {
+            try {
+                const fileType = getReadableMimeType(file.mimeType);
+                
+                // 문서 내용 읽기
+                let fileContent = '';
+                if (file.mimeType === MIME_TYPES.docs) fileContent = await readDocContent(file.id);
+                else if (file.mimeType === MIME_TYPES.sheets) fileContent = await readSheetContent(file.id);
+                else if (file.mimeType === MIME_TYPES.slides) fileContent = await readSlidesContent(file.id);
 
-        const document = { title: file.name, content: fileContent, url: file.webViewLink, mimeType: file.mimeType };
-
-        // Step 3: Search keyword inside the document with smart search
-        let searchResultText = searchInDocument(document, inDocKeyword);
-        if (!searchResultText || searchResultText.trim() === '') {
-            const expansion = await getSmartKeywords(inDocKeyword, /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(inDocKeyword));
-            if (expansion && expansion.keywords && expansion.keywords.length > 0) {
-                let expandedResults = [];
-                for (const newKeyword of expansion.keywords) {
-                    const newResult = searchInDocument(document, newKeyword);
-                    if (newResult) expandedResults.push(`---\n**'${newKeyword}'(으)로 다시 검색한 결과:**\n${newResult}`);
+                if (!fileContent) {
+                    failedCount++;
+                    continue;
                 }
-                searchResultText = expandedResults.join('\n');
+
+                const document = { title: file.name, content: fileContent, url: file.webViewLink, mimeType: file.mimeType };
+
+                // Step 3: Search keyword inside the document with smart search
+                let searchResultText = searchInDocument(document, inDocKeyword);
+                if (!searchResultText || searchResultText.trim() === '') {
+                    const expansion = await getSmartKeywords(inDocKeyword, /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(inDocKeyword));
+                    if (expansion && expansion.keywords && expansion.keywords.length > 0) {
+                        let expandedResults = [];
+                        for (const newKeyword of expansion.keywords) {
+                            const newResult = searchInDocument(document, newKeyword);
+                            if (newResult) expandedResults.push(`**'${newKeyword}'(으)로 검색한 결과:**\n${newResult}`);
+                        }
+                        searchResultText = expandedResults.join('\n\n');
+                    }
+                }
+
+                if (searchResultText && searchResultText.trim() !== '') {
+                    allResults.push({
+                        title: file.name,
+                        type: fileType,
+                        url: file.webViewLink,
+                        content: searchResultText
+                    });
+                }
+
+                processedCount++;
+                
+                // 진행 상황 업데이트
+                if (documentsToProcess.length > 1) {
+                    await statusMessage.edit(`📚 **다중 문서 검색 진행 중:** ${processedCount}/${documentsToProcess.length} 문서 처리 완료...`);
+                }
+
+            } catch (error) {
+                console.error(`[COMBINED_SEARCH] 문서 처리 실패: ${file.name}`, error);
+                failedCount++;
             }
         }
 
-        if (!searchResultText || searchResultText.trim() === '') {
-            failureSummary.push(`1️⃣ **문서 확인 완료:** '${file.name}' 문서는 성공적으로 읽었습니다.`);
-            failureSummary.push(`2️⃣ **키워드 검색 실패:** 하지만 문서 내에서 '${inDocKeyword}'(와)과 관련된 내용을 찾지 못했습니다.`);
+        // Step 4: Present combined results
+        if (allResults.length === 0) {
+            failureSummary.push(`1️⃣ **문서 처리 완료:** ${processedCount}개 문서를 처리했습니다.`);
+            failureSummary.push(`2️⃣ **키워드 검색 실패:** 하지만 어떤 문서에서도 '${inDocKeyword}'(와)과 관련된 내용을 찾지 못했습니다.`);
+            if (failedCount > 0) {
+                failureSummary.push(`3️⃣ **처리 실패:** ${failedCount}개 문서는 읽기에 실패했습니다.`);
+            }
             await statusMessage.edit({ content: failureSummary.join('\n'), embeds: [] });
             return;
         }
-        
-        // Step 4: Present the result
-        const truncatedResult = searchResultText.length > 3800 ? searchResultText.substring(0, 3800) + '...' : searchResultText;
+
+        // 결과 포맷팅
+        let combinedResultText = '';
+        allResults.forEach((result, index) => {
+            combinedResultText += `## 📄 ${result.title} (${result.type})\n\n`;
+            combinedResultText += `${result.content}\n\n`;
+            combinedResultText += `🔗 [${result.title}](${result.url})\n\n`;
+            if (index < allResults.length - 1) {
+                combinedResultText += `---\n\n`;
+            }
+        });
+
+        const truncatedResult = combinedResultText.length > 3800 ? combinedResultText.substring(0, 3800) + '...' : combinedResultText;
 
         const resultEmbed = new EmbedBuilder()
             .setColor(0x0099FF)
-            .setTitle(`'${document.title}' 문서 내 '${inDocKeyword}' 통합 검색 결과`)
+            .setTitle(`'${inDocKeyword}' 다중 문서 통합 검색 결과`)
             .setDescription(truncatedResult)
-            .addFields({ name: '🔗 원본 문서 링크', value: `[${document.title}](${document.url})` })
-            .setFooter({ text: '통합 검색이 완료되었습니다.'})
+            .addFields({ 
+                name: '📊 검색 결과 요약', 
+                value: `✅ 검색 성공: ${allResults.length}개 문서\n❌ 검색 실패: ${processedCount - allResults.length}개 문서${failedCount > 0 ? `\n⚠️ 읽기 실패: ${failedCount}개 문서` : ''}` 
+            })
+            .setFooter({ text: '다중 문서 통합 검색이 완료되었습니다.'})
             .setTimestamp();
 
-        await statusMessage.edit({ content: `✅ **통합 검색 완료!**`, embeds: [resultEmbed] });
+        await statusMessage.edit({ content: `✅ **다중 문서 통합 검색 완료!**`, embeds: [resultEmbed] });
 
     } catch (error) {
         console.error('[COMBINED_SEARCH] 통합 검색 중 오류:', error);
@@ -322,7 +368,7 @@ async function handleDriveReadButton(interaction, driveSearchSessions) {
 
         const preview = fileContent.length > 500 ? fileContent.substring(0, 500) + '...' : fileContent;
         let responseMessage = `✅ **${file.name}** 문서를 성공적으로 읽어 컨텍스트에 저장했습니다.\n`;
-        responseMessage += `🔗 [**원본 문서 링크**](${file.webViewLink})\n\n`;
+        responseMessage += `🔗 [**${file.name}**](${file.webViewLink})\n\n`;
         responseMessage += `**📖 내용 미리보기:**\n\`\`\`\n${preview}\n\`\`\`\n\n`;
         responseMessage += `💡 이제 이 문서에 대해 질문하거나 요약을 요청할 수 있습니다!`;
 

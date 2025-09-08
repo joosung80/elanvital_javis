@@ -1,6 +1,6 @@
 const { authorize, listEvents, addEvent, deleteEvent, updateEvent, searchEvents } = require('../google-calendar');
 const { calculateMatchScore } = require('./similarityUtils');
-const { getOpenAIClient } = require('./openaiClient');
+const { getOpenAIClient, logOpenAICall } = require('./openaiClient');
 
 /**
  * 자연어 텍스트를 Google Calendar 이벤트 데이터로 파싱합니다.
@@ -8,7 +8,7 @@ const { getOpenAIClient } = require('./openaiClient');
  * @returns {Object|null} 파싱된 이벤트 데이터
  */
 async function parseEventWithGemini(text) {
-    console.log(`[SCHEDULE DEBUG] 📅 이벤트 파싱 시작 - 입력: "${text}"`);
+    console.log(`📅 일정 파싱: "${text}"`);
     
     const now = new Date();
     const koreanTime = now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
@@ -117,7 +117,7 @@ async function parseEventWithGemini(text) {
     `;
     
     try {
-        console.log(`[SCHEDULE DEBUG] 🤖 OpenAI GPT-4o-mini API 호출 중...`);
+        // OpenAI API 호출 로그는 응답 후에 출력
         
         const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
@@ -138,14 +138,14 @@ async function parseEventWithGemini(text) {
         
         const jsonText = response.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
         
-        console.log(`[SCHEDULE DEBUG] 📝 OpenAI 응답: ${jsonText}`);
+        logOpenAICall('gpt-4o-mini', response.usage, '일정 파싱');
         
         const parsedEvent = JSON.parse(jsonText);
-        console.log(`[SCHEDULE DEBUG] ✅ 파싱 성공:`, parsedEvent);
+        console.log(`✅ 일정 파싱 완료: ${parsedEvent.summary || '제목 없음'}`);
         
         return parsedEvent;
     } catch (e) {
-        console.error(`[SCHEDULE DEBUG] ❌ 이벤트 파싱 실패:`, e);
+        console.error(`❌ 일정 파싱 실패:`, e.message);
         return null;
     }
 }
@@ -156,7 +156,7 @@ async function parseEventWithGemini(text) {
  * @returns {Object|null} 시간 범위 정보
  */
 async function getTimeRangeFromPeriod(period) {
-    console.log(`[SCHEDULE DEBUG] 🕐 시간 범위 파싱 시작 - 기간: "${period}"`);
+    console.log(`🕐 시간 범위 파싱: "${period}"`);
     
     const now = new Date();
     const koreanTime = now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
@@ -214,7 +214,7 @@ async function getTimeRangeFromPeriod(period) {
 `;
 
     try {
-        console.log(`[SCHEDULE DEBUG] 🤖 시간 범위 OpenAI GPT-4o-mini API 호출 중...`);
+        // OpenAI API 호출 로그는 응답 후에 출력
         
         const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
@@ -235,25 +235,24 @@ async function getTimeRangeFromPeriod(period) {
         
         const responseText = response.choices[0].message.content;
         
-        console.log(`[SCHEDULE DEBUG] 📝 시간 범위 OpenAI 응답: ${responseText}`);
+        logOpenAICall('gpt-4o-mini', response.usage, '시간 범위 파싱');
         
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const timeRange = JSON.parse(jsonMatch[0]);
-            console.log(`[SCHEDULE DEBUG] ✅ 시간 범위 파싱 성공:`, timeRange);
             
             // 계산된 날짜 범위 로그 출력
             const startDate = new Date(timeRange.start);
             const endDate = new Date(timeRange.end);
-            console.log(`[SCHEDULE DEBUG] 📅 ${timeRange.description}: ${startDate.toLocaleDateString('ko-KR')} ~ ${endDate.toLocaleDateString('ko-KR')}`);
+            console.log(`📅 ${timeRange.description}: ${startDate.toLocaleDateString('ko-KR')} ~ ${endDate.toLocaleDateString('ko-KR')}`);
             
             return timeRange;
         }
         
-        console.log(`[SCHEDULE DEBUG] ❌ JSON 매칭 실패`);
+        console.log(`❌ JSON 매칭 실패`);
         return null;
     } catch (error) {
-        console.error(`[SCHEDULE DEBUG] ❌ 시간 범위 파싱 오류:`, error);
+        console.error(`❌ 시간 범위 파싱 오류:`, error.message);
         return null;
     }
 }
@@ -265,29 +264,26 @@ async function getTimeRangeFromPeriod(period) {
  * @returns {Object} 조회 결과
  */
 async function getInteractiveSchedule(period = '오늘', userId = null) {
-    console.log(`[INTERACTIVE DEBUG] 📋 인터랙티브 일정 조회 시작 - 기간: "${period}"`);
+    console.log(`📋 일정 조회: "${period}"`);
     
     try {
-        console.log(`[INTERACTIVE DEBUG] 🔐 Google Calendar 인증 중...`);
         const auth = await authorize();
-        console.log(`[INTERACTIVE DEBUG] ✅ 인증 완료`);
         
         const timeRange = await getTimeRangeFromPeriod(period);
         
         if (!timeRange) {
-            console.log(`[INTERACTIVE DEBUG] ❌ 시간 범위 파싱 실패`);
+            console.log(`❌ 시간 범위 파싱 실패`);
             return {
                 success: false,
                 message: '기간을 이해하지 못했습니다. 다시 시도해주세요. (예: 오늘, 내일, 이번주, 지난주, 이번달)'
             };
         }
 
-        console.log(`[INTERACTIVE DEBUG] 📅 Google Calendar API 호출 - 범위: ${timeRange.start} ~ ${timeRange.end}`);
         const events = await listEvents(auth, timeRange.start, timeRange.end);
-        console.log(`[INTERACTIVE DEBUG] 📊 조회된 이벤트 수: ${events ? events.length : 0}`);
+        console.log(`📊 조회된 이벤트: ${events ? events.length : 0}개`);
         
         if (!events || events.length === 0) {
-            console.log(`[INTERACTIVE DEBUG] ℹ️ 해당 기간에 일정 없음`);
+            console.log(`ℹ️ 해당 기간에 일정 없음`);
             return {
                 success: true,
                 message: `**${timeRange.description}**에 예정된 일정이 없습니다.`
@@ -305,7 +301,7 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
             userId: userId
         });
         
-        console.log(`[INTERACTIVE DEBUG] 💾 일정 세션 저장: ${sessionId} (${events.length}개 일정)`);
+        console.log(`💾 일정 세션 저장: ${events.length}개`);
         
         // Discord 버튼 UI 생성 - 컴팩트한 투명 스타일 버튼
         const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -374,7 +370,7 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
         
         const message = `**${timeRange.description} 일정:**\n\n${eventList}\n\n🔧 **아래 버튼으로 수정/삭제하세요:**`;
         
-        console.log(`[INTERACTIVE DEBUG] ✅ 인터랙티브 일정 조회 완료 (${events.length}개)`);
+        console.log(`✅ 일정 조회 완료 (${events.length}개)`);
         
         return {
             success: true,
@@ -385,7 +381,7 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
         };
         
     } catch (error) {
-        console.error(`[INTERACTIVE DEBUG] ❌ 인터랙티브 일정 조회 오류:`, error);
+        console.error(`❌ 일정 조회 오류:`, error.message);
         return {
             success: false,
             message: '일정 조회 중 오류가 발생했습니다.'
@@ -990,7 +986,7 @@ function cancelScheduleDelete(sessionId) {
  * @returns {Object} 삭제 결과
  */
 async function quickDeleteEvent(sessionId, eventIndex) {
-    console.log(`[QUICK DELETE DEBUG] 🗑️ 빠른 삭제 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
+    console.log(`🗑️ 일정 삭제 요청 (${eventIndex}번)`);
     
     try {
         const sessionData = getScheduleSession(sessionId);
@@ -1032,7 +1028,7 @@ async function quickDeleteEvent(sessionId, eventIndex) {
                 hour12: false
             }) : '종일';
         
-        console.log(`[QUICK DELETE DEBUG] ✅ 빠른 삭제 완료: ${eventToDelete.summary}`);
+        console.log(`✅ 일정 삭제 완료: ${eventToDelete.summary}`);
         
         return {
             success: true,
@@ -1040,7 +1036,7 @@ async function quickDeleteEvent(sessionId, eventIndex) {
         };
         
     } catch (error) {
-        console.error(`[QUICK DELETE DEBUG] ❌ 빠른 삭제 오류:`, error);
+        console.error(`❌ 일정 삭제 오류:`, error.message);
         return {
             success: false,
             message: '❌ 일정 삭제 중 오류가 발생했습니다.'
@@ -1452,7 +1448,7 @@ async function processNaturalSchedule(text, classification) {
     
     try {
         // LLM이 추출한 일정 타입과 정보 사용
-        const scheduleType = classification.scheduleType || 'add'; // 기본값: 추가
+        const scheduleType = classification.extractedInfo?.scheduleType || 'query'; // 기본값: 조회
         const extractedInfo = classification.extractedInfo || {};
         
         console.log(`[SCHEDULE DEBUG] 📋 일정 타입: ${scheduleType}`);
@@ -1504,10 +1500,12 @@ async function processNaturalSchedule(text, classification) {
  * @returns {Promise<string|Object>} 처리 결과 메시지 또는 객체
  */
 async function handleScheduleRequest(message, classification, userInput) {
-    const { scheduleType, extractedInfo } = classification;
+    const { extractedInfo } = classification;
+    const scheduleType = extractedInfo?.scheduleType || 'query';
     const textToProcess = userInput || message.content;
 
-    console.log(`[SCHEDULE HANDLER] 🚀 스케줄 요청 처리 시작: 타입 '${scheduleType}'`);
+    console.log(`🚀 스케줄 요청 처리 시작`);
+    console.log(`🎯 scheduleType: '${scheduleType}'`);
 
     try {
         let result;
@@ -1537,13 +1535,13 @@ async function handleScheduleRequest(message, classification, userInput) {
                 }
             default:
                 // 혹시 모를 예외 처리: scheduleType이 없으면 Gemini 파싱 시도
-                console.log(`[SCHEDULE HANDLER] ⚠️ scheduleType이 지정되지 않았습니다. 자연어 처리 시도.`);
+                console.log(`⚠️ scheduleType 없음 - 자연어 처리 시도`);
                 result = await addScheduleEvent(textToProcess);
                 await message.reply(result.message);
                 return result.message;
         }
     } catch (error) {
-        console.error(`[SCHEDULE HANDLER] ❌ 요청 처리 중 심각한 오류 발생:`, error);
+        console.error(`❌ 스케줄 처리 오류:`, error.message);
         await message.reply('죄송합니다. 일정 처리 중 오류가 발생했습니다.');
         return '일정 처리 오류';
     }

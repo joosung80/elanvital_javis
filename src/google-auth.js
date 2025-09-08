@@ -121,5 +121,6 @@ async function getAuthenticatedGoogleApis() {
 }
 
 module.exports = {
+    authorize,
     getAuthenticatedGoogleApis
 };

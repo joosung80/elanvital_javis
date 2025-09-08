@@ -1,6 +1,6 @@
 const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
 const { handleTaskButton } = require('../utils/taskHandler');
-const { handleDeleteConfirmation } = require('../utils/scheduleHandler');
+const { handleDeleteConfirmation, quickDeleteEvent } = require('../utils/scheduleHandler');
 const { handleDriveReadButton } = require('../utils/driveHandler');
 const { handleSummarizeButton, handleSearchInDocument } = require('../utils/documentHandler');
 
@@ -18,6 +18,24 @@ module.exports = {
                     await handleTaskButton(interaction, client.taskSessions);
                 } else if (customId.startsWith('delete_schedule_')) {
                     await handleDeleteConfirmation(interaction, client.scheduleSessions);
+                } else if (customId.startsWith('quick_delete_')) {
+                    // quick_delete_sessionId_eventIndex 형태 파싱
+                    const parts = customId.split('_');
+                    if (parts.length >= 4) {
+                        const sessionId = parts.slice(2, -1).join('_'); // sessionId 부분
+                        const eventIndex = parseInt(parts[parts.length - 1]); // 마지막 부분이 eventIndex
+                        
+                        console.log(`[INTERACTION] 🗑️ 빠른 삭제 요청 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
+                        
+                        const result = await quickDeleteEvent(sessionId, eventIndex);
+                        if (result.success) {
+                            await interaction.reply({ content: result.message, ephemeral: true });
+                        } else {
+                            await interaction.reply({ content: result.message, ephemeral: true });
+                        }
+                    } else {
+                        await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
+                    }
                 } else if (customId.startsWith('read_drive_')) {
                     await handleDriveReadButton(interaction, client.driveSearchSessions);
                 } else if (customId === 'summarize_document') {

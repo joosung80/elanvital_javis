@@ -1,13 +1,8 @@
 const { GoogleGenAI } = require('@google/genai');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
-const { 
-  getCurrentContext, 
-  getRecentConversations,
-  getUserMemory,
-  saveImageContext
-} = require('./memoryHandler');
-const { getOpenAIClient } = require('./openaiClient');
+// 메모리 관련 함수들은 client.memory를 통해 접근
+const { getOpenAIClient, logOpenAICall, logGeminiCall } = require('./openaiClient');
 
 // Initialize APIs (lazy loading)
 let genAI = null;
@@ -25,24 +20,17 @@ function getGoogleGenAI() {
 
 // Function to convert image URL to a format the API understands
 async function urlToGenerativePart(url, mimeType) {
-    console.log(`[URL_TO_PART] 🔗 이미지 URL 변환 시작: ${url}`);
-    console.log(`[URL_TO_PART] 🎯 MIME 타입: ${mimeType}`);
+    console.log(`🔄 이미지 변환 중...`);
     
     try {
         const response = await fetch(url);
-        console.log(`[URL_TO_PART] 📡 HTTP 응답 상태: ${response.status} ${response.statusText}`);
-        console.log(`[URL_TO_PART] 📏 Content-Length: ${response.headers.get('content-length') || 'unknown'}`);
-        console.log(`[URL_TO_PART] 🎭 Content-Type: ${response.headers.get('content-type') || 'unknown'}`);
         
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
         const buffer = await response.buffer();
-        console.log(`[URL_TO_PART] 💾 버퍼 크기: ${buffer.length} bytes`);
-        
         const base64Data = buffer.toString("base64");
-        console.log(`[URL_TO_PART] 🔤 Base64 길이: ${base64Data.length} characters`);
         
         const result = {
             inlineData: {
@@ -51,11 +39,11 @@ async function urlToGenerativePart(url, mimeType) {
             },
         };
         
-        console.log(`[URL_TO_PART] ✅ 이미지 변환 완료`);
+        console.log(`✅ 이미지 변환 완료`);
         return result;
         
     } catch (error) {
-        console.error(`[URL_TO_PART] ❌ 이미지 변환 실패:`, error);
+        console.error(`❌ 이미지 변환 실패:`, error.message);
         throw error;
     }
 }
@@ -67,24 +55,29 @@ async function urlToGenerativePart(url, mimeType) {
  * @param {string} userId - 사용자 ID (컨텍스트용)
  * @returns {string} 보강된 프롬프트
  */
-async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, userId = null) {
-    console.log(`[PROMPT ENHANCE] 🚀 프롬프트 보강 시작`);
-    console.log(`[PROMPT ENHANCE] 📝 원본 프롬프트: "${originalPrompt}"`);
-    console.log(`[PROMPT ENHANCE] 🔄 이미지 수정 모드: ${isImageEdit}`);
-    console.log(`[PROMPT ENHANCE] 👤 사용자 ID: ${userId || 'null'}`);
+async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, userId = null, client = null) {
+    console.log(`🚀 프롬프트 보강 시작`);
+    console.log(`📝 원본 (${originalPrompt.length}자): "${originalPrompt}"`);
     
     // 컨텍스트 정보 가져오기
     let contextInfo = '';
     // 컨텍스트는 이미지를 새로 생성할 때만 사용하고, 이미지 수정 시에는 사용하지 않습니다.
-    if (userId && !isImageEdit) {
-        const recentConversations = getRecentConversations(userId, 3);
+    if (userId && !isImageEdit && client) {
+        const recentConversations = client.memory.getRecentConversations(userId, 3);
         if (recentConversations.length > 0) {
-            console.log(`[PROMPT ENHANCE] 🧠 최근 대화 ${recentConversations.length}개 활용`);
+            console.log(`[PROMPT] 🧠 최근 대화 ${recentConversations.length}개 컨텍스트 활용`);
             contextInfo = '\n\n최근 대화 컨텍스트:\n' + 
-                recentConversations.map((conv, i) => 
-                    `${i+1}. 사용자: "${conv.userMessage}"\n   봇: "${conv.botResponse.substring(0, 200)}${conv.botResponse.length > 200 ? '...' : ''}"`
-                ).join('\n');
+                recentConversations.map((conv, i) => {
+                    const userMsg = conv.userMessage || conv.user || '';
+                    const botMsg = conv.botResponse || conv.bot || '';
+                    const truncatedBot = botMsg.length > 200 ? botMsg.substring(0, 200) + '...' : botMsg;
+                    return `${i+1}. 사용자: "${userMsg}"\n   봇: "${truncatedBot}"`;
+                }).join('\n');
+        } else {
+            console.log(`[PROMPT] 🧠 컨텍스트 없음 (새 이미지 생성)`);
         }
+    } else if (isImageEdit) {
+        console.log(`[PROMPT] 🔄 이미지 수정 모드 (컨텍스트 미사용)`);
     }
     
     try {
@@ -92,41 +85,65 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
             ? `You are an expert prompt engineer for an image editing AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI.
 
 **CRITICAL RULES:**
-1.  **PRESERVE THE SUBJECT:** You MUST maintain the primary subject of the original image. If the user provides an image of a cat, your prompt must be about modifying the cat or its environment. Do NOT change the subject unless the user explicitly asks (e.g., "change the cat to a dog").
-2.  **FOCUS ON THE REQUEST:** Your primary goal is to translate the user's *current* request into a detailed prompt. Do not infer context from past conversations.
-3.  **OUTPUT FORMAT:** The final prompt must be in English, start with "Modify the image to...", and be a single, concise instruction.
+1.  **PRESERVE THE ORIGINAL SUBJECT:** You MUST keep the main subject/animal/object from the original image unchanged. If the original image shows a cat, the modified image must still feature the same cat. Only modify the environment, background, or style as requested.
+2.  **EXTRACT KEY ACTIONS AND CONTEXT:** Pay close attention to specific actions, emotions, or situations mentioned in the user's request. If they say "강아지와 노는 모습" (playing with a dog), include BOTH the action "playing" AND the interaction partner "dog" in your output.
+3.  **HANDLE ADDITIONAL SUBJECTS:** When the user mentions other animals/objects (like "강아지" - dog), ADD them to the scene while keeping the original subject. For "강아지와 노는 모습", show the original cat playing WITH a dog, not just the cat playing alone.
+4.  **INTERPRET USER INTENT:** Adapt the request to work with the existing subject while preserving ALL mentioned elements (actions, objects, other animals, environments).
+5.  **OUTPUT FORMAT:** The final prompt must be in English, start with "Modify the image to...", and be a single, concise instruction.
 
 **EXAMPLE 1 (Background Change):**
 - User Request: "change the background to the sea"
 - Original Image: A cat.
 - Your Output: "Modify the image to place the original cat on a beautiful ocean background, featuring clear blue water and a bright sky, while keeping the cat as the main subject."
 
-**EXAMPLE 2 (Style Change):**
+**EXAMPLE 2 (Adding Interaction Partner):**
+- User Request: "강아지와 노는 모습" (playing with a dog)
+- Original Image: A cat with a toy.
+- Your Output: "Modify the image to show the original cat actively playing and interacting with a friendly dog, both animals engaged in joyful play together, capturing the playful interaction between the cat and dog as described in the request."
+
+**EXAMPLE 3 (Environment + Interaction):**
+- User Request: "강아지와 해변에서 뛰어노는 모습 그려주세요" (Draw a dog playing on the beach)
+- Original Image: A cat sitting indoors.
+- Your Output: "Modify the image to show the original cat joyfully playing and running with a friendly dog on a sandy beach with waves in the background, both animals engaged in playful interaction while capturing the beach environment from the user's request."
+
+**EXAMPLE 4 (Style Change):**
 - User Request: "make it look like a cartoon"
 - Original Image: A realistic photo of a car.
 - Your Output: "Modify the image to transform the realistically photographed car into a cartoon style, with bold outlines, vibrant colors, and a playful aesthetic."
 
 **Now, process the following request based on the rules provided.**`
-            : `You are an expert prompt engineer for an image generation AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI to create a high-quality image.
+            : `You are an expert prompt engineer for an image generation AI. Your task is to convert a user's simple request into a detailed, specific, English prompt for the Gemini AI to create a high-quality REALISTIC image.
 
 **CRITICAL RULES:**
 1.  **ABSOLUTELY NO QUESTIONS:** Your one and only job is to generate a descriptive English image prompt. You must NEVER, under any circumstances, ask the user for clarification, more details, or ask questions of any kind. You must infer the user's intent from the provided context and generate a complete, detailed prompt ready for an image AI.
-2.  **USE THE CONVERSATION CONTEXT:** The user's request often builds upon the conversation. Your prompt MUST be based on the key topics and details from the 'Recent Conversation Context'.
-3.  **BE CREATIVE & DESCRIPTIVE:** If the user's request is vague (e.g., "draw that"), it is your job to be creative. Based on the context, invent a beautiful and detailed scene. Add details about style (e.g., epic digital art, photorealistic), mood (e.g., awe-inspiring, serene), lighting, and composition.
-4.  **OUTPUT FORMAT:** The final prompt must be in English and be a single, concise instruction for the AI. Include keywords like "high quality, detailed".
+2.  **REALISTIC PHOTOGRAPHY STYLE:** Unless the user explicitly requests cartoon, anime, or artistic styles, ALWAYS generate prompts for photorealistic images. Use photography terms like "professional photography", "DSLR camera", "natural lighting", "realistic", "photorealistic", "lifelike".
+3.  **USE THE CONVERSATION CONTEXT INTELLIGENTLY:** The user's request often builds upon the conversation. Analyze the 'Recent Conversation Context' to understand the MAIN TOPIC being discussed. If the context is about "solar system", don't just focus on one element like the sun - consider the entire system. If it's about "animals in the forest", include multiple animals and forest elements, not just one animal.
+4.  **BE CREATIVE & DESCRIPTIVE:** If the user's request is vague (e.g., "draw that"), it is your job to be creative. Based on the context, invent a beautiful and detailed realistic scene. Add details about realistic lighting, camera angles, depth of field, and photographic composition.
+5.  **OUTPUT FORMAT:** The final prompt must be in English and be a single, concise instruction for the AI. ALWAYS include realistic photography keywords.
 
 **EXAMPLE 1 (Simple Request):**
 - User Request: "draw a cat"
-- Your Output: "A cute and fluffy cat, realistic style, high quality, detailed fur texture, bright eyes, sitting pose, soft natural lighting, professional photography."
+- Your Output: "A cute and fluffy cat, photorealistic style, professional photography, DSLR camera, detailed fur texture, bright natural eyes, sitting pose, soft natural lighting, shallow depth of field, high resolution, lifelike."
 
 **EXAMPLE 2 (Contextual Request):**
 - Recent Conversation Context:
-    - User: "Tell me about the components of the sun."
-    - Bot: "The sun is primarily made of Hydrogen and Helium, with a core where nuclear fusion occurs..."
+    - User: "Tell me about the solar system."
+    - Bot: "The solar system consists of the Sun and eight planets: Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, and Neptune..."
 - User Request: "draw an image based on that"
-- Your Output: "An awe-inspiring illustration of the sun's core, showing the intense process of nuclear fusion where hydrogen atoms combine to form helium. Feature vibrant, fiery colors of orange and yellow, with dynamic waves of energy radiating outwards. High quality digital art, scientifically-inspired, detailed, cosmic background."
+- Your Output: "A breathtaking realistic view of the solar system showing all planets in their orbital arrangement around the Sun, captured with professional space photography techniques, detailed planetary surfaces and atmospheres, accurate relative sizes and distances, deep space background with stars, high resolution, photorealistic, astronomical photography quality."
 
-**Now, process the following request based on the rules and context provided.**${contextInfo}`;
+**EXAMPLE 3 (Context Analysis):**
+- Recent Conversation Context:
+    - User: "What animals live in the Amazon rainforest?"
+    - Bot: "The Amazon rainforest is home to jaguars, toucans, sloths, poison dart frogs, and many other species..."
+- User Request: "draw that"
+- Your Output: "A vibrant Amazon rainforest scene featuring multiple wildlife species including a jaguar, colorful toucans, a sloth hanging from branches, and poison dart frogs, lush green vegetation, misty atmosphere, natural lighting filtering through the canopy, professional wildlife photography, DSLR camera, photorealistic, high resolution."
+
+**EXAMPLE 4 (People/Portrait Request):**
+- User Request: "draw a person reading a book"
+- Your Output: "A photorealistic portrait of a person reading a book in a cozy library, natural lighting from a window, professional photography, DSLR camera, shallow depth of field, detailed facial features, realistic skin texture, warm ambient lighting, high resolution, lifelike."
+
+**Now, process the following request based on the rules and context provided. Remember to make it PHOTOREALISTIC unless explicitly told otherwise.**${contextInfo}`;
 
         const openai = getOpenAIClient();
         const response = await openai.chat.completions.create({
@@ -139,15 +156,16 @@ async function enhancePromptWithChatGPT(originalPrompt, isImageEdit = false, use
             temperature: 0.7
         });
 
+        logOpenAICall('gpt-4o-mini', response.usage, '이미지 프롬프트 개선');
         const enhancedPrompt = response.choices[0].message.content.trim();
-        console.log(`[PROMPT ENHANCE] ✅ 프롬프트 보강 완료`);
-        console.log(`[PROMPT ENHANCE] 🎯 보강된 프롬프트: "${enhancedPrompt}"`);
+        console.log(`✅ 프롬프트 보강 완료 (${enhancedPrompt.length}자)`);
+        console.log(`📄 "${enhancedPrompt}"`);
         
         return enhancedPrompt;
         
     } catch (error) {
-        console.error(`[PROMPT ENHANCE] ❌ 프롬프트 보강 실패:`, error);
-        console.log(`[PROMPT ENHANCE] 🔄 원본 프롬프트 사용`);
+        console.error(`❌ 프롬프트 보강 실패:`, error.message);
+        console.log(`🔄 원본 프롬프트 사용`);
         return originalPrompt;
     }
 }
@@ -168,28 +186,26 @@ async function handleImageRequest(message, promptContent) {
     const attachments = Array.from(message.attachments.values());
     const imageAttachments = attachments.filter(att => att.contentType && att.contentType.startsWith('image/'));
     const userId = message.author.id;
-    const memory = getUserMemory(userId);
+    const memory = message.client.memory.getUserMemory(userId);
 
     let imageUrl = imageAttachments.length > 0 ? imageAttachments[0].url : memory.lastImageUrl;
     let imageMimeType = imageAttachments.length > 0 ? imageAttachments[0].contentType : memory.lastImageMimeType;
 
     // 새 이미지가 업로드되면 메모리에 저장
     if (imageAttachments.length > 0) {
-        saveImageContext(userId, imageUrl, imageMimeType);
+        console.log(`[IMAGE] 💾 새 이미지를 메모리에 저장 (${imageMimeType})`);
+        message.client.memory.saveImageContext(userId, imageUrl, imageMimeType);
+    } else if (memory.lastImageUrl) {
+        console.log(`[IMAGE] 🔄 메모리에서 이전 이미지 사용`);
     }
 
     const requesterTag = message.author.tag;
     const requesterAvatarURL = message.author.displayAvatarURL();
 
-    console.log(`[IMAGE HANDLER] 🎨 이미지 처리 핸들러 시작`);
-    console.log(`[IMAGE HANDLER] 📝 프롬프트: "${prompt}"`);
-    console.log(`[IMAGE HANDLER] 🖼️ 이미지 URL: ${imageUrl || 'null'}`);
-    console.log(`[IMAGE HANDLER] 🎯 MIME 타입: ${imageMimeType || 'null'}`);
-    console.log(`[IMAGE HANDLER] 👤 요청자: ${requesterTag}`);
+    console.log(`[IMAGE] 🎨 "${prompt}" ${imageUrl ? '(이미지 수정)' : '(새 이미지)'}`);
     
     try {
         if (!prompt || prompt.trim() === '') {
-            console.log(`[IMAGE HANDLER] ❌ 빈 프롬프트 감지`);
             await message.reply("프롬프트를 입력해주세요.");
             return "프롬프트를 입력해주세요.";
         }
@@ -214,23 +230,24 @@ async function handleImageRequest(message, promptContent) {
             console.error(`[IMAGE HANDLER] ❌ Discord 피드백 전송 실패:`, error);
         }
         
-        const enhancedPrompt = await enhancePromptWithChatGPT(prompt, isImageEdit, userId);
+        const enhancedPrompt = await enhancePromptWithChatGPT(prompt, isImageEdit, userId, message.client);
         
         // Discord 피드백: 보강된 프롬프트 표시
+        const truncatedOriginal = prompt.length > 300 ? prompt.substring(0, 300) + '...' : prompt;
+        const truncatedEnhanced = enhancedPrompt.length > 800 ? enhancedPrompt.substring(0, 800) + '...' : enhancedPrompt;
+        
         const promptMessage = `✨ **프롬프트 보강 완료!**\n\n` +
-            `**원본:** "${prompt}"\n` +
-            `**보강됨:** "${enhancedPrompt}"`;
+            `**📝 원본 프롬프트:**\n> ${truncatedOriginal}\n\n` +
+            `**🚀 보강된 프롬프트:**\n> ${truncatedEnhanced}`;
         await sendFeedback(promptMessage);
 
         let contents;
         
         if (imageUrl && imageMimeType) {
             // 이미지 + 텍스트 처리
-            console.log(`[IMAGE HANDLER] 🔄 이미지 수정 모드`);
+            console.log(`[IMAGE] 🔄 이미지 수정 모드`);
             try {
-                console.log(`[IMAGE HANDLER] 📥 이미지 다운로드 시작: ${imageUrl}`);
                 const imagePart = await urlToGenerativePart(imageUrl, imageMimeType);
-                console.log(`[IMAGE HANDLER] ✅ 이미지 변환 완료 (Base64 길이: ${imagePart.inlineData.data.length})`);
                 
                 contents = [
                     { text: enhancedPrompt },
@@ -243,14 +260,12 @@ async function handleImageRequest(message, promptContent) {
             }
         } else {
             // 텍스트만으로 이미지 생성
-            console.log(`[IMAGE HANDLER] 🆕 이미지 생성 모드`);
+            console.log(`[IMAGE] 🆕 이미지 생성 모드`);
             contents = [{ text: enhancedPrompt }];
         }
 
         // 2단계: Gemini API 호출
-        console.log(`[IMAGE HANDLER] 🚀 Gemini API 호출 시작`);
-        console.log(`[IMAGE HANDLER] 🤖 모델: gemini-2.5-flash-image-preview`);
-        console.log(`[IMAGE HANDLER] 📊 컨텐츠 수: ${contents.length}`);
+        console.log(`[IMAGE] 🚀 Gemini API 호출 중...`);
         
         // Discord 피드백: API 요청 시작
         const apiMessage = isImageEdit 
@@ -259,29 +274,35 @@ async function handleImageRequest(message, promptContent) {
         await sendFeedback(apiMessage);
         
         const genAI = getGoogleGenAI();
+        const startTime = Date.now();
         const result = await genAI.models.generateContent({
             model: "gemini-2.5-flash-image-preview",
             contents,
         });
+        const endTime = Date.now();
+        const duration = endTime - startTime;
 
-        console.log(`[IMAGE HANDLER] ✅ Gemini API 응답 받음`);
-        console.log(`[IMAGE HANDLER] 📋 후보 수: ${result.candidates?.length || 0}`);
+        // 토큰 정보 추출
+        const usageMetadata = result.response?.usageMetadata || result.usageMetadata || result.candidates?.[0]?.usageMetadata;
+        
+        const purpose = isImageEdit ? '이미지 편집' : '이미지 생성';
+        logGeminiCall('gemini-2.5-flash-image-preview', duration, purpose, usageMetadata);
+        
+        console.log(`✅ ${purpose} 완료`);
 
         const firstCandidate = result.candidates?.[0];
         
         if (firstCandidate && firstCandidate.content && firstCandidate.content.parts) {
-            console.log(`[IMAGE HANDLER] 🔍 응답 파트 수: ${firstCandidate.content.parts.length}`);
             
             let resultSent = false;
             for (const part of firstCandidate.content.parts) {
                 if (part.inlineData && part.inlineData.data) {
-                    console.log(`[IMAGE HANDLER] 🖼️ 이미지 데이터 발견! (Base64 길이: ${part.inlineData.data.length})`);
-                    
                     const imageBuffer = Buffer.from(part.inlineData.data, 'base64');
                     const fileName = imageUrl ? 'edited-image.png' : 'generated-image.png';
+                    
+                    console.log(`[IMAGE] 💾 이미지 저장 완료`);
                     const imageAttachment = new AttachmentBuilder(imageBuffer, { name: fileName });
 
-                    console.log(`[IMAGE HANDLER] 📎 첨부파일 생성: ${fileName} (${imageBuffer.length} bytes)`);
 
                     const embed = new EmbedBuilder()
                         .setTitle(imageUrl ? "이미지 수정 완료 ✨" : "이미지 생성 완료 ✨")
@@ -295,21 +316,18 @@ async function handleImageRequest(message, promptContent) {
                         embed.setThumbnail(imageUrl);
                     }
 
-                    console.log(`[IMAGE HANDLER] 🎉 이미지 처리 성공!`);
                     
                     await message.reply({ embeds: [embed], files: [imageAttachment] });
                     resultSent = true;
                     
                     // 이미지 생성 성공 시, 원본 프롬프트와 보강된 프롬프트를 함께 반환하여 대화 기록
                     return `Original Prompt: "${prompt}"\nEnhanced Prompt: "${enhancedPrompt}"`;
-                } else if (part.text) {
-                    console.log(`[IMAGE HANDLER] 📝 텍스트 파트 발견: "${part.text.substring(0, 100)}..."`);
                 }
             }
         }
 
         // 이미지가 생성되지 않은 경우 텍스트 응답 반환
-        console.log(`[IMAGE HANDLER] ⚠️ 이미지 데이터를 찾을 수 없음`);
+        console.log(`[IMAGE] ⚠️ 이미지 생성 실패`);
         
         let textResponse = '';
         if (firstCandidate && firstCandidate.content && firstCandidate.content.parts) {
@@ -317,7 +335,6 @@ async function handleImageRequest(message, promptContent) {
                 .filter(p => p.text)
                 .map(p => p.text)
                 .join('\n');
-            console.log(`[IMAGE HANDLER] 📝 대체 텍스트 응답: "${textResponse.substring(0, 100)}..."`);
         }
 
         const fallbackResponse = textResponse || "죄송합니다, 이미지를 생성할 수 없습니다.";

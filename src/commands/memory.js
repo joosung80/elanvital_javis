@@ -1,11 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { 
-  getMemoryStats, 
-  getCurrentContext, 
-  getRecentConversations,
-  getLastImage,
-  clearUserMemory
-} = require('../utils/memoryHandler');
+// 메모리 관련 함수들은 interaction.client.memory를 통해 접근
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -77,7 +71,11 @@ module.exports = {
 };
 
 async function handleStatsCommand(interaction) {
-  const stats = getMemoryStats();
+  const userCount = interaction.client.memory.userMemories.size;
+  const stats = {
+    totalUsers: userCount,
+    totalMemoryUsage: `${userCount} users`
+  };
   
   const embed = new EmbedBuilder()
     .setTitle('🧠 메모리 시스템 통계')
@@ -94,7 +92,8 @@ async function handleStatsCommand(interaction) {
 }
 
 async function handleClearCommand(interaction, userId) {
-  const result = clearUserMemory(userId);
+  interaction.client.memory.userMemories.delete(userId);
+  const result = { success: true, message: '사용자 메모리가 성공적으로 삭제되었습니다.' };
   
   if (result.success) {
     const embed = new EmbedBuilder()
@@ -115,7 +114,12 @@ async function handleClearCommand(interaction, userId) {
 }
 
 async function handleContextCommand(interaction, userId) {
-  const context = getCurrentContext(userId);
+  const userMemory = interaction.client.memory.getUserMemory(userId);
+  const context = {
+    lastDocument: userMemory.lastDocument,
+    recentDocuments: userMemory.recentDocuments || [],
+    lastImage: userMemory.lastImageUrl
+  };
   
   const embed = new EmbedBuilder()
     .setTitle('🎯 현재 컨텍스트')
@@ -150,7 +154,8 @@ async function handleContextCommand(interaction, userId) {
 }
 
 async function handleClearCommand(interaction, userId) {
-  const result = clearUserMemory(userId);
+  interaction.client.memory.userMemories.delete(userId);
+  const result = { success: true, message: '사용자 메모리가 성공적으로 삭제되었습니다.' };
   
   if (result.success) {
     const embed = new EmbedBuilder()
@@ -171,7 +176,7 @@ async function handleClearCommand(interaction, userId) {
 }
 
 async function handleHistoryCommand(interaction, userId, limit) {
-  const conversations = getRecentConversations(userId, limit);
+  const conversations = interaction.client.memory.getRecentConversations(userId, limit);
   
   if (conversations.length === 0) {
     await interaction.reply('저장된 대화 기록이 없습니다.');
@@ -184,9 +189,9 @@ async function handleHistoryCommand(interaction, userId, limit) {
     .setTimestamp();
 
   conversations.forEach((conv, index) => {
-    const timeStr = conv.timestamp.toLocaleString('ko-KR');
+    const timeStr = new Date(conv.timestamp).toLocaleString('ko-KR');
     embed.addFields({
-      name: `${index + 1}. ${conv.category} (${timeStr})`,
+      name: `${index + 1}. 대화 (${timeStr})`,
       value: `**사용자:** ${conv.userMessage.substring(0, 100)}${conv.userMessage.length > 100 ? '...' : ''}\n**봇:** ${conv.botResponse.substring(0, 100)}${conv.botResponse.length > 100 ? '...' : ''}`,
       inline: false
     });
@@ -196,7 +201,8 @@ async function handleHistoryCommand(interaction, userId, limit) {
 }
 
 async function handleClearCommand(interaction, userId) {
-  const result = clearUserMemory(userId);
+  interaction.client.memory.userMemories.delete(userId);
+  const result = { success: true, message: '사용자 메모리가 성공적으로 삭제되었습니다.' };
   
   if (result.success) {
     const embed = new EmbedBuilder()
@@ -217,7 +223,11 @@ async function handleClearCommand(interaction, userId) {
 }
 
 async function handleImageCommand(interaction, userId) {
-  const lastImage = getLastImage(userId);
+  const userMemory = interaction.client.memory.getUserMemory(userId);
+  const lastImage = {
+    url: userMemory.lastImageUrl,
+    mimeType: userMemory.lastImageMimeType
+  };
   
   if (!lastImage) {
     await interaction.reply('저장된 이미지가 없습니다.');
@@ -239,7 +249,8 @@ async function handleImageCommand(interaction, userId) {
 }
 
 async function handleClearCommand(interaction, userId) {
-  const result = clearUserMemory(userId);
+  interaction.client.memory.userMemories.delete(userId);
+  const result = { success: true, message: '사용자 메모리가 성공적으로 삭제되었습니다.' };
   
   if (result.success) {
     const embed = new EmbedBuilder()

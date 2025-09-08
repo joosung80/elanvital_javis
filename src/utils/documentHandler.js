@@ -10,9 +10,7 @@ const mammoth = require('mammoth');
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
-const { saveDocumentsToMemory } = require('./memoryHandler');
-const { getOpenAIClient } = require('./openaiClient');
-const { getUserMemory } = require('../utils/memoryHandler');
+const { getOpenAIClient, logOpenAICall } = require('./openaiClient');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 
 /**
@@ -393,6 +391,7 @@ ${text}`;
             max_tokens: 1500
         });
         
+        logOpenAICall('gpt-4o-mini', response.usage, '스마트 키워드 생성');
         const summary = response.choices[0].message.content;
         
         console.log(`[DOCUMENT SUMMARY] ✅ 요약 완료: ${summary.length}자`);
@@ -501,7 +500,7 @@ async function handleDocumentRequest(message, classification, actualContent = nu
     
     const successfulDocs = documentContexts.filter(doc => !doc.error);
     if (successfulDocs.length > 0) {
-      await saveDocumentsToMemory(message.author.id, successfulDocs);
+      await message.client.memory.saveDocumentsToMemory(message.author.id, successfulDocs);
       console.log(`[DOCUMENT] 💾 ${successfulDocs.length}개 문서가 메모리에 저장됨`);
     }
     
@@ -553,7 +552,7 @@ async function handleSummarizeButton(interaction) {
  */
 async function handleDocumentSummarizationRequest(message) {
     const userId = message.author.id;
-    const memory = getUserMemory(userId);
+    const memory = message.client.memory.getUserMemory(userId);
 
     if (!memory.lastDocuments || memory.lastDocuments.length === 0) {
         await message.reply('❌ 요약할 문서가 컨텍스트에 없습니다. 먼저 문서를 읽어주세요.');
@@ -576,6 +575,7 @@ async function handleDocumentSummarizationRequest(message) {
             temperature: 0.5,
         });
 
+        logOpenAICall('gpt-4o-mini', response.usage, '문서 요약');
         const summary = response.choices[0].message.content;
         const replyMessage = `📝 **'${lastDocument.title}' 문서 요약**\n\n${summary}`;
         await message.reply(replyMessage);
@@ -600,13 +600,13 @@ function searchInDocument(document, keyword) {
     const lowerCaseKeyword = keyword.toLowerCase();
     
     let matchCount = 0;
-    const contextAfter = 3; // 모든 문서 유형에 대해 아래 3줄의 컨텍스트를 표시
-    const maxMatches = 5;   // 최대 5개의 일치 항목을 표시
+    const contextAfter = 2; // 모든 문서 유형에 대해 아래 2줄의 컨텍스트를 표시 (총 3줄)
+    const maxMatches = 3;   // 최대 3개의 일치 항목을 표시
 
     for (let i = 0; i < lines.length; i++) {
         if (lines[i].toLowerCase().includes(lowerCaseKeyword)) {
             if (matchCount >= maxMatches) {
-                results.push('> ... (일치하는 결과가 더 있지만 5개만 표시합니다)');
+                results.push('> ... (일치하는 결과가 더 있지만 3개만 표시합니다)');
                 break;
             }
 
@@ -682,6 +682,8 @@ Your Output:
             max_tokens: 150,
             response_format: { type: "json_object" },
         });
+        
+        logOpenAICall('gpt-4-turbo', completion.usage, '스마트 키워드 확장');
 
         const response = JSON.parse(completion.choices[0].message.content);
         console.log(`[SMART_SEARCH] 🧠 "${originalKeyword}" → [${response.keywords.join(', ')}] (${response.strategy})`);

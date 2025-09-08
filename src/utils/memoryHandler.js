@@ -16,7 +16,7 @@ class MemoryHandler {
 
     getUserMemory(userId) {
         if (!this.userMemories.has(userId)) {
-            console.log(`[MEMORY_GET] 🧠 New memory created for user ${userId}`);
+            console.log(`[MEMORY] 🧠 새 사용자 메모리 생성`);
             this.userMemories.set(userId, {
                 conversations: new Collection(),
                 lastDocuments: [],
@@ -26,9 +26,7 @@ class MemoryHandler {
                 lastImageMimeType: null,
             });
         }
-        const memory = this.userMemories.get(userId);
-        console.log(`[MEMORY_GET] 🧠 Retrieving memory for user ${userId}. Last doc title: ${memory.lastDocument ? memory.lastDocument.title : 'None'}`);
-        return memory;
+        return this.userMemories.get(userId);
     }
 
     async saveDocumentsToMemory(userId, documents) {
@@ -45,9 +43,7 @@ class MemoryHandler {
                 memory.recentDocuments.length = 20;
             }
 
-            console.log(`[MEMORY_SAVE] 💾 Saved document for user ${userId}. Title: ${documents[0].title}. MimeType: ${documents[0].mimeType}`);
-        } else {
-            console.log(`[MEMORY_SAVE] 💾 No documents to save for user ${userId}.`);
+            console.log(`[MEMORY] 💾 문서 저장: ${documents[0].title}`);
         }
     }
 
@@ -55,7 +51,7 @@ class MemoryHandler {
         const memory = this.getUserMemory(userId);
         memory.lastImageUrl = url;
         memory.lastImageMimeType = mimeType;
-        console.log(`[MEMORY_SAVE] 🖼️ Saved image context for user ${userId}. URL: ${url}`);
+        console.log(`[MEMORY] 🖼️ 이미지 컨텍스트 저장`);
     }
 
     getRecentConversations(userId, limit = 5) {
@@ -71,8 +67,8 @@ class MemoryHandler {
         const conversationId = `${userId}-${timestamp}`;
 
         memory.conversations.set(conversationId, {
-            user: userContent,
-            bot: botResponse,
+            userMessage: userContent,
+            botResponse: botResponse,
             timestamp: timestamp
         });
 
@@ -81,7 +77,7 @@ class MemoryHandler {
             const oldestKey = memory.conversations.firstKey();
             memory.conversations.delete(oldestKey);
         }
-        console.log(`[MEMORY_SAVE] 💬 Saved conversation for user ${userId}.`);
+        console.log(`[MEMORY] 💬 대화 저장`);
     }
 }
 
