@@ -57,6 +57,11 @@ function logOpenAICall(model, usage, purpose) {
 function logGeminiCall(model, duration, purpose, usage = null) {
     const durationStr = duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`;
     
+    // 빌링 상태 확인
+    const billingStatus = getGeminiBillingStatus(model);
+    const billingIcon = billingStatus === 'PAID' ? '💳' : '🆓';
+    const billingText = billingStatus === 'PAID' ? '유료' : '무료';
+    
     if (usage) {
         // 다양한 토큰 필드 확인
         const totalTokens = usage.totalTokenCount || usage.total_tokens || usage.totalTokens;
@@ -67,18 +72,45 @@ function logGeminiCall(model, duration, purpose, usage = null) {
             const totalStr = formatTokens(totalTokens);
             const inputStr = inputTokens ? formatTokens(inputTokens) : '?';
             const outputStr = outputTokens ? formatTokens(outputTokens) : '?';
-            console.log(`💎 ${model} 호출 (${purpose}) - 시간: ${durationStr}, 입력: ${inputStr}, 출력: ${outputStr}, 총: ${totalStr} 토큰`);
+            console.log(`${billingIcon} ${model} 호출 (${purpose}) [${billingText}] - 시간: ${durationStr}, 입력: ${inputStr}, 출력: ${outputStr}, 총: ${totalStr} 토큰`);
         } else {
-            console.log(`💎 ${model} 호출 (${purpose}) - 시간: ${durationStr}`);
+            console.log(`${billingIcon} ${model} 호출 (${purpose}) [${billingText}] - 시간: ${durationStr}`);
         }
     } else {
-        console.log(`💎 ${model} 호출 (${purpose}) - 시간: ${durationStr}`);
+        console.log(`${billingIcon} ${model} 호출 (${purpose}) [${billingText}] - 시간: ${durationStr}`);
     }
+}
+
+/**
+ * Gemini API의 빌링 상태를 확인합니다.
+ * @param {string} model - 모델명
+ * @returns {string} 'PAID' 또는 'FREE'
+ */
+function getGeminiBillingStatus(model) {
+    // 환경 변수로 빌링 설정 확인
+    const hasBilling = process.env.GEMINI_BILLING_ENABLED === 'true' || process.env.GOOGLE_CLOUD_BILLING_ENABLED === 'true';
+    
+    // 유료 전용 모델 확인
+    const paidOnlyModels = [
+        'gemini-2.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-image-preview'
+    ];
+    
+    const isPaidModel = paidOnlyModels.some(paidModel => model.includes(paidModel));
+    
+    // 빌링이 설정되어 있거나 유료 전용 모델을 사용하는 경우 유료로 판단
+    if (hasBilling || isPaidModel) {
+        return 'PAID';
+    }
+    
+    return 'FREE';
 }
 
 module.exports = {
     getOpenAIClient,
     formatTokens,
     logOpenAICall,
-    logGeminiCall
+    logGeminiCall,
+    getGeminiBillingStatus
 };

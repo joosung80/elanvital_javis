@@ -2,7 +2,7 @@ const { GoogleGenAI } = require('@google/genai');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const fetch = require('node-fetch');
 // 메모리 관련 함수들은 client.memory를 통해 접근
-const { logGeminiCall } = require('./openaiClient');
+const { logGeminiCall, getGeminiBillingStatus } = require('./openaiClient');
 const { askGPT } = require('../services/gptService');
 const { getGeminiModel } = require('../config/models');
 
@@ -340,15 +340,175 @@ async function handleImageRequest(message, promptContent) {
         console.error(`[IMAGE HANDLER] 💥 예외 발생:`, error);
         console.error(`[IMAGE HANDLER] 💥 스택 트레이스:`, error.stack);
         
+        let errorMessage = "이미지 처리 중 오류가 발생했습니다.";
+        
+        // Gemini API 할당량 초과 오류 처리
+        if (error.status === 429 || (error.message && error.message.includes("quota"))) {
+            const retryDelay = error.error?.details?.find(d => d["@type"]?.includes("RetryInfo"))?.retryDelay;
+            const delaySeconds = retryDelay ? parseInt(retryDelay.replace('s', '')) : 60;
+            
+            // 빌링 상태 확인
+            const model = getGeminiModel('IMAGE_GENERATION');
+            const billingStatus = getGeminiBillingStatus(model);
+            
+            if (billingStatus === 'PAID') {
+                // 유료 사용자의 경우 - 유료 할당량도 초과됨
+                errorMessage = `🚫 **Gemini API 유료 할당량 초과**\n\n` +
+                              `💳 유료 플랜의 이미지 생성 한도도 초과했습니다.\n` +
+                              `⏰ **${Math.ceil(delaySeconds / 60)}분 후** 다시 시도하거나\n` +
+                              `🎨 **OpenAI DALL-E**로 즉시 생성할 수 있습니다.\n\n` +
+                              `📚 자세한 정보: https://ai.google.dev/gemini-api/docs/rate-limits`;
+            } else {
+                // 무료 사용자의 경우 - 유료로 전환 가능
+                errorMessage = `🚫 **Gemini API 무료 할당량 초과**\n\n` +
+                              `🆓 무료 티어의 이미지 생성 한도를 초과했습니다.\n` +
+                              `⏰ **${Math.ceil(delaySeconds / 60)}분 후** 다시 시도해주세요.\n\n` +
+                              `💡 **업그레이드 옵션:**\n` +
+                              `• 💳 Gemini API 유료 플랜으로 업그레이드\n` +
+                              `• 🎨 OpenAI DALL-E 즉시 사용\n` +
+                              `• ⏰ 잠시 후 다시 시도\n\n` +
+                              `📚 자세한 정보: https://ai.google.dev/gemini-api/docs/rate-limits`;
+            }
+            
+            // 재시도 및 OpenAI 대체 버튼 추가
+            try {
+                const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                
+                const retryButton = new ButtonBuilder()
+                    .setCustomId(`retry_image_${Date.now()}`)
+                    .setLabel(`${Math.ceil(delaySeconds / 60)}분 후 재시도`)
+                    .setStyle(ButtonStyle.Secondary)
+                    .setEmoji('🔄');
+                
+                const openaiButton = new ButtonBuilder()
+                    .setCustomId(`openai_image_${Date.now()}_${Buffer.from(prompt).toString('base64')}`)
+                    .setLabel('OpenAI DALL-E 사용')
+                    .setStyle(ButtonStyle.Primary)
+                    .setEmoji('🎨');
+                
+                const row = new ActionRowBuilder().addComponents(retryButton, openaiButton);
+                
+                const additionalInfo = billingStatus === 'PAID' 
+                    ? `\n\n🎨 **즉시 대안**: OpenAI DALL-E를 사용하여 이미지를 생성할 수 있습니다.`
+                    : `\n\n🎨 **즉시 대안**: OpenAI DALL-E를 사용하여 이미지를 생성할 수 있습니다.\n\n💡 **유료 전환 방법**: \`.env\` 파일에 \`GEMINI_BILLING_ENABLED=true\` 추가 후 재시작`;
+                
+                await message.reply({
+                    content: errorMessage + additionalInfo,
+                    components: [row]
+                });
+                
+                return errorMessage;
+            } catch (buttonError) {
+                console.error('[IMAGE HANDLER] 버튼 생성 실패:', buttonError);
+                // 버튼 실패 시 일반 메시지로 폴백
+            }
+        }
+        // 기타 API 오류 처리
+        else if (error.status >= 400 && error.status < 500) {
+            errorMessage = `❌ **API 오류 (${error.status})**\n\n` +
+                          `이미지 생성 요청에 문제가 있습니다.\n` +
+                          `다른 프롬프트로 다시 시도해주세요.`;
+        }
+        // 네트워크 오류 처리
+        else if (error.code === 'ENOTFOUND' || error.code === 'ECONNRESET') {
+            errorMessage = `🌐 **네트워크 오류**\n\n` +
+                          `인터넷 연결을 확인하고 다시 시도해주세요.`;
+        }
+        
         // 오류 응답 전송
-        await message.reply("이미지 처리 중 오류가 발생했습니다.");
+        await message.reply(errorMessage);
 
-        return "이미지 처리 중 오류가 발생했습니다.";
+        return errorMessage;
+    }
+}
+
+/**
+ * OpenAI DALL-E를 사용하여 이미지를 생성합니다.
+ * @param {string} prompt - 이미지 생성 프롬프트
+ * @param {object} message - Discord 메시지 객체
+ * @returns {string} 결과 메시지
+ */
+async function generateImageWithOpenAI(prompt, message) {
+    const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
+    const axios = require('axios');
+    
+    console.log(`[OPENAI IMAGE] 🎨 DALL-E 이미지 생성 시작: "${prompt}"`);
+    
+    try {
+        if (!process.env.OPENAI_API_KEY) {
+            throw new Error('OPENAI_API_KEY가 설정되지 않았습니다.');
+        }
+        
+        // 프롬프트 보강 (영어로 번역 및 개선)
+        const enhancedPrompt = await enhancePromptWithChatGPT(prompt, false, message.author.id, message.client);
+        
+        console.log(`[OPENAI IMAGE] 📤 DALL-E API 요청 전송`);
+        const response = await axios.post('https://api.openai.com/v1/images/generations', {
+            model: "dall-e-3",
+            prompt: enhancedPrompt,
+            n: 1,
+            size: "1024x1024",
+            quality: "standard",
+            response_format: "url"
+        }, {
+            headers: {
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            timeout: 60000 // 60초 타임아웃
+        });
+        
+        console.log(`[OPENAI IMAGE] ✅ DALL-E 이미지 생성 완료`);
+        
+        const imageUrl = response.data.data[0].url;
+        const revisedPrompt = response.data.data[0].revised_prompt;
+        
+        // 이미지 다운로드
+        console.log(`[OPENAI IMAGE] 📥 이미지 다운로드 중...`);
+        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+        const imageBuffer = Buffer.from(imageResponse.data);
+        
+        const imageAttachment = new AttachmentBuilder(imageBuffer, { name: 'dalle-generated-image.png' });
+        
+        const embed = new EmbedBuilder()
+            .setTitle("🎨 OpenAI DALL-E 이미지 생성 완료")
+            .setColor(0x00A67E)
+            .setImage('attachment://dalle-generated-image.png')
+            .addFields(
+                { name: '📝 원본 프롬프트', value: prompt.length > 1024 ? prompt.substring(0, 1021) + '...' : prompt },
+                { name: '🔄 개선된 프롬프트', value: revisedPrompt.length > 1024 ? revisedPrompt.substring(0, 1021) + '...' : revisedPrompt }
+            )
+            .setTimestamp()
+            .setFooter({ 
+                text: `Generated by OpenAI DALL-E • Requested by ${message.author.tag}`, 
+                iconURL: message.author.displayAvatarURL() 
+            });
+        
+        await message.channel.send({ embeds: [embed], files: [imageAttachment] });
+        
+        return `OpenAI DALL-E로 이미지 생성 완료: "${prompt}"`;
+        
+    } catch (error) {
+        console.error(`[OPENAI IMAGE] ❌ DALL-E 이미지 생성 실패:`, error);
+        
+        let errorMessage = "OpenAI DALL-E 이미지 생성 중 오류가 발생했습니다.";
+        
+        if (error.response?.status === 429) {
+            errorMessage = "🚫 OpenAI API 할당량도 초과되었습니다. 잠시 후 다시 시도해주세요.";
+        } else if (error.response?.status === 400) {
+            errorMessage = "❌ 프롬프트에 문제가 있습니다. 다른 내용으로 시도해주세요.";
+        } else if (error.code === 'ECONNABORTED') {
+            errorMessage = "⏰ 이미지 생성 시간이 초과되었습니다. 다시 시도해주세요.";
+        }
+        
+        await message.channel.send(errorMessage);
+        return errorMessage;
     }
 }
 
 module.exports = {
     handleImageRequest,
     urlToGenerativePart,
-    enhancePromptWithChatGPT
+    enhancePromptWithChatGPT,
+    generateImageWithOpenAI
 };

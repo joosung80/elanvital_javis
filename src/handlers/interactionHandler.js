@@ -1,5 +1,6 @@
 const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
 const { handleTaskCompleteButton } = require('../utils/taskHandler');
+const { generateImageWithOpenAI } = require('../utils/imageHandler');
 const { handleDeleteConfirmation, quickDeleteEvent } = require('../utils/scheduleHandler');
 const { handleDriveReadButton } = require('../utils/driveHandler');
 const { handleSummarizeButton, handleSearchInDocument } = require('../utils/documentHandler');
@@ -40,6 +41,34 @@ module.exports = {
             try {
                 if (customId.startsWith('complete_task_')) {
                     await handleTaskCompleteButton(interaction);
+                } else if (customId.startsWith('openai_image_')) {
+                    // OpenAI DALL-E 이미지 생성 버튼 처리
+                    const parts = customId.split('_');
+                    if (parts.length >= 4) {
+                        const encodedPrompt = parts.slice(3).join('_');
+                        try {
+                            const prompt = Buffer.from(encodedPrompt, 'base64').toString('utf-8');
+                            
+                            await interaction.reply({ content: '🎨 OpenAI DALL-E로 이미지를 생성하고 있습니다...', ephemeral: true });
+                            
+                            // 원본 메시지를 가져와서 generateImageWithOpenAI 호출
+                            const originalMessage = interaction.message;
+                            const mockMessage = {
+                                author: interaction.user,
+                                channel: interaction.channel,
+                                client: interaction.client
+                            };
+                            
+                            await generateImageWithOpenAI(prompt, mockMessage);
+                            
+                            await interaction.followUp({ content: '✅ OpenAI DALL-E 이미지 생성이 완료되었습니다!', ephemeral: true });
+                        } catch (decodeError) {
+                            console.error('프롬프트 디코딩 실패:', decodeError);
+                            await interaction.reply({ content: '❌ 프롬프트 처리 중 오류가 발생했습니다.', ephemeral: true });
+                        }
+                    } else {
+                        await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
+                    }
                 } else if (customId.startsWith('select_task_')) {
                     // 기존 select_task_ 처리 (필요시 유지)
                     console.log('Legacy select_task_ button clicked');
