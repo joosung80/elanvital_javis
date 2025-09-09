@@ -668,14 +668,16 @@ async function parseDeleteRequest(text) {
   "searchDate": "YYYY-MM-DD (검색 시작일)",
   "searchTimeStart": "YYYY-MM-DDTHH:MM:SS+09:00",
   "searchTimeEnd": "YYYY-MM-DDTHH:MM:SS+09:00",
-  "description": "검색 범위 설명"
+  "description": "검색 범위 설명",
+  "period": "원본 기간 표현 (예: 오늘, 내일, 이번주, 다음주, 차주)"
 }
 
 예시:
-- "오늘 회의 취소해줘" → searchKeyword: "회의", 오늘 00:00~23:59 검색
-- "내일 저녁식사 삭제" → searchKeyword: "저녁식사", 내일 00:00~23:59 검색
-- "이번주 워크샵 없애줘" → searchKeyword: "워크샵", 이번주 월요일~일요일 전체 검색
-- "다음주 일정중에 점심 약속 삭제" → searchKeyword: "점심", 다음주 월요일~일요일 전체 검색
+- "오늘 회의 취소해줘" → searchKeyword: "회의", period: "오늘", 오늘 00:00~23:59 검색
+- "내일 저녁식사 삭제" → searchKeyword: "저녁식사", period: "내일", 내일 00:00~23:59 검색
+- "이번주 워크샵 없애줘" → searchKeyword: "워크샵", period: "이번주", 이번주 월요일~일요일 전체 검색
+- "다음주 일정중에 점심 약속 삭제" → searchKeyword: "점심", period: "다음주", 다음주 월요일~일요일 전체 검색
+- "차주 일정중에 강연준비회의 삭제" → searchKeyword: "강연준비회의", period: "차주", 차주 월요일~일요일 전체 검색
 `;
     
     try {
@@ -854,10 +856,11 @@ async function deleteScheduleEvent(input, userId = null) {
             events: candidateEvents,
             searchKeyword: deleteRequest.searchKeyword,
             description: deleteRequest.description,
+            period: deleteRequest.period || '오늘', // 원본 기간 표현 저장
             userId: userId
         });
         
-        console.log(`[DELETE DEBUG] 💾 삭제 세션 저장: ${sessionId} (${candidateEvents.length}개 후보)`);
+        console.log(`[DELETE DEBUG] 💾 삭제 세션 저장: ${sessionId} (${candidateEvents.length}개 후보) - 기간: "${deleteRequest.period || '오늘'}"`);
         
         // Discord 버튼 UI 생성
         const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -1021,7 +1024,7 @@ async function executeScheduleDelete(sessionId, eventIndex) {
         console.log(`[DELETE DEBUG] ✅ 일정 삭제 완료: ${displayTitle} (${dateStr} ${timeStr})`);
         
         // 삭제 후 같은 기간의 일정 목록을 다시 조회
-        console.log(`[DELETE DEBUG] 📋 삭제 후 목록 재조회 중...`);
+        console.log(`[DELETE DEBUG] 📋 삭제 후 목록 재조회 중... 기간: "${sessionData.period}"`);
         const updatedSchedule = await getInteractiveSchedule(sessionData.period, sessionData.userId);
         
         const deleteMessage = `✅ **일정이 삭제되었습니다!**\n\n🗑️ **${dateStr} ${timeStr}** - ${displayTitle}\n*(${(selectedItem.similarity * 100).toFixed(1)}% 유사도로 매칭)*`;
@@ -1123,10 +1126,28 @@ async function quickDeleteEvent(sessionId, eventIndex) {
         
         console.log(`✅ 일정 삭제 완료: ${eventToDelete.summary}`);
         
-        return {
-            success: true,
-            message: `✅ **일정이 삭제되었습니다!**\n\n🗑️ **${dateStr} ${timeStr}** - ${eventToDelete.summary}`
-        };
+        // 삭제 후 같은 기간의 일정 목록을 다시 조회
+        console.log(`[QUICK DELETE] 📋 삭제 후 목록 재조회 중... 기간: "${sessionData.period}"`);
+        const updatedSchedule = await getInteractiveSchedule(sessionData.period, sessionData.userId);
+        
+        const deleteMessage = `✅ **일정이 삭제되었습니다!**\n\n🗑️ **${dateStr} ${timeStr}** - ${eventToDelete.summary}`;
+        
+        if (updatedSchedule.success && updatedSchedule.events && updatedSchedule.events.length > 0) {
+            // 삭제 후에도 일정이 남아있는 경우
+            return {
+                success: true,
+                message: deleteMessage + '\n\n' + updatedSchedule.message,
+                components: updatedSchedule.components,
+                showUpdatedList: true
+            };
+        } else {
+            // 삭제 후 일정이 없는 경우
+            return {
+                success: true,
+                message: deleteMessage + '\n\n📅 **현재 해당 기간에 다른 일정이 없습니다.**',
+                showUpdatedList: false
+            };
+        }
         
     } catch (error) {
         console.error(`❌ 일정 삭제 오류:`, error.message);

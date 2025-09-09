@@ -4,7 +4,7 @@ const { askGPTForJSON } = require('./services/gptService');
  * 숏컷 발화를 처리하는 함수
  * 예: "할일:4차시 원고검토", "일정:차주 5시 멘토링", "이미지:고양이가 산에서 노는 모습"
  */
-function parseShortcutCommand(userInput) {
+async function parseShortcutCommand(userInput) {
     console.log(`🚀 숏컷 명령어 확인: "${userInput}"`);
     
     // 동의어 사전
@@ -15,69 +15,225 @@ function parseShortcutCommand(userInput) {
         '문서': ['문서', '드라이브', '구글드라이브', '구글독', '독스', 'drive', 'docs']
     };
     
-    // 구분자 패턴 (콜론, 컴마, 탭, 스페이스, 대시 등)
-    const delimiters = /[:\s,\t\-—]/;
+    // 구분자 패턴 (콜론, # 만 허용)
+    const delimiters = /[:#]/;
     
-    // 첫 번째 구분자를 찾아서 명령어와 내용 분리
-    const delimiterMatch = userInput.match(delimiters);
-    if (!delimiterMatch) {
-        console.log(`❌ 구분자 없음`);
+    // 모든 구분자로 분할하여 토큰 생성
+    const tokens = userInput.split(delimiters).map(token => token.trim()).filter(token => token.length > 0);
+    
+    if (tokens.length < 2) {
+        console.log(`❌ 토큰 부족: ${tokens.length}개`);
         return null;
     }
     
-    const delimiterIndex = delimiterMatch.index;
-    const command = userInput.substring(0, delimiterIndex).trim().toLowerCase();
-    const content = userInput.substring(delimiterIndex + 1).trim();
+    console.log(`🔍 토큰 분석: [${tokens.join(', ')}]`);
     
-    if (!content) {
-        console.log(`❌ 내용 없음`);
-        return null;
-    }
+    // 첫 번째 토큰에서 명령어 찾기
+    const firstToken = tokens[0].toLowerCase();
+    let matchedCategory = null;
     
-    console.log(`🔍 명령어: "${command}", 내용: "${content}"`);
-    
-    // 동의어 매칭
     for (const [category, synonymList] of Object.entries(synonyms)) {
-        if (synonymList.some(synonym => synonym === command)) {
-            console.log(`✅ 숏컷 매칭: ${category} - "${content}"`);
-            
-            switch (category) {
-                case '할일':
-                    return {
-                        category: 'TASK',
-                        extractedInfo: {
-                            taskType: 'add',
-                            content: content
-                        }
-                    };
-                    
-                case '일정':
-                    return {
-                        category: 'SCHEDULE',
-                        extractedInfo: {
-                            scheduleType: 'add',
-                            period: extractPeriodFromContent(content),
-                            content: content
-                        }
-                    };
-                    
-                case '이미지':
-                    return {
-                        category: 'IMAGE',
-                        extractedInfo: {
-                            prompt: content
-                        }
-                    };
-                    
-                case '문서':
-                    return parseDocumentShortcut(content);
-            }
+        if (synonymList.some(synonym => synonym === firstToken)) {
+            matchedCategory = category;
+            break;
         }
     }
     
-    console.log(`❌ 숏컷 매칭 실패`);
-    return null;
+    if (!matchedCategory) {
+        console.log(`❌ 명령어 매칭 실패: "${firstToken}"`);
+        return null;
+    }
+    
+    console.log(`✅ 명령어 매칭: ${matchedCategory}`);
+    
+    // 나머지 토큰들을 LLM으로 분석
+    const remainingTokens = tokens.slice(1);
+    return await parseLLMTokens(matchedCategory, remainingTokens, userInput);
 }
+
+/**
+ * LLM을 사용하여 토큰들을 분석하고 파라미터 순서 무관하게 처리
+ * @param {string} category - 매칭된 카테고리 ('할일', '일정', '이미지', '문서')
+ * @param {Array} tokens - 분석할 토큰 배열
+ * @param {string} originalInput - 원본 입력
+ * @returns {Object|null} 파싱 결과
+ */
+async function parseLLMTokens(category, tokens, originalInput) {
+    console.log(`🤖 LLM 토큰 분석: ${category} - [${tokens.join(', ')}]`);
+    
+    const systemPrompt = `You are an expert at parsing Korean shortcut commands. Your task is to analyze tokens and extract the action and content, regardless of parameter order.
+
+**Category**: ${category}
+
+**Available Actions by Category**:
+- 할일 (Task): add (추가/등록/생성), complete (완료/체크/끝), delete (삭제/제거), query (조회/목록/보기)
+- 일정 (Schedule): add (추가/등록/생성), delete (삭제/제거), update (수정/변경), query (조회/목록/보기)
+- 이미지 (Image): generate (생성/그리기) - always defaults to generate
+- 문서 (Document): search (검색) - always defaults to search
+
+**Rules**:
+1. Identify the ACTION from the tokens (추가, 완료, 삭제, 조회, etc.)
+2. Extract the CONTENT (everything that's not an action)
+3. If no action is found, default to "add" for tasks/schedules, "generate" for images, "search" for documents
+4. For documents, if there are 2+ content tokens, treat first as document name, rest as search keywords
+5. Parameter order doesn't matter - be flexible
+
+**Input Tokens**: [${tokens.join(', ')}]
+
+**Response Format** (JSON only):
+{
+  "action": "add|complete|delete|query|generate|search",
+  "content": "extracted content",
+  "documentName": "document name (documents only)",
+  "searchKeyword": "search keyword (documents only)"
+}`;
+
+    try {
+        const { askGPTForJSON } = require('./services/gptService');
+        const result = await askGPTForJSON('SHORTCUT_PARSING', systemPrompt, `Tokens: [${tokens.join(', ')}]`, { 
+            purpose: '숏컷 파라미터 파싱',
+            max_tokens: 200,
+            temperature: 0.1
+        });
+        
+        console.log(`🤖 LLM 파싱 결과:`, result);
+        
+        // 카테고리별 결과 변환
+        return convertLLMResult(category, result, tokens);
+        
+    } catch (error) {
+        console.error(`❌ LLM 파싱 실패:`, error);
+        // 폴백: 기존 로직 사용
+        return parseSmartTokensFallback(category, tokens);
+    }
+}
+
+/**
+ * LLM 결과를 카테고리별 형식으로 변환
+ */
+function convertLLMResult(category, llmResult, originalTokens) {
+    console.log(`🔄 LLM 결과 변환: ${category}`);
+    
+    switch (category) {
+        case '할일':
+            const taskTypeMap = {
+                'add': 'add',
+                'complete': 'complete', 
+                'delete': 'delete',
+                'query': 'query'
+            };
+            
+            return {
+                category: 'TASK',
+                extractedInfo: {
+                    taskType: taskTypeMap[llmResult.action] || 'add',
+                    content: llmResult.content || originalTokens.join(' ')
+                }
+            };
+            
+        case '일정':
+            const scheduleTypeMap = {
+                'add': 'add',
+                'delete': 'delete',
+                'update': 'update',
+                'query': 'query'
+            };
+            
+            const fullContent = llmResult.content || originalTokens.join(' ');
+            
+            return {
+                category: 'SCHEDULE',
+                extractedInfo: {
+                    scheduleType: scheduleTypeMap[llmResult.action] || 'add',
+                    period: extractPeriodFromContent(fullContent),
+                    content: fullContent
+                }
+            };
+            
+        case '이미지':
+            return {
+                category: 'IMAGE',
+                extractedInfo: {
+                    prompt: llmResult.content || originalTokens.join(' ')
+                }
+            };
+            
+        case '문서':
+            const extractedInfo = {
+                searchKeyword: llmResult.documentName || llmResult.content || originalTokens[0] || ''
+            };
+            
+            if (llmResult.searchKeyword) {
+                extractedInfo.inDocumentKeyword = llmResult.searchKeyword;
+            } else if (originalTokens.length >= 2 && !llmResult.documentName) {
+                // LLM이 구분하지 못한 경우 폴백
+                extractedInfo.searchKeyword = originalTokens[0];
+                extractedInfo.inDocumentKeyword = originalTokens.slice(1).join(' ');
+            }
+            
+            return {
+                category: 'DRIVE',
+                extractedInfo: extractedInfo
+            };
+            
+        default:
+            console.log(`❌ 알 수 없는 카테고리: ${category}`);
+            return null;
+    }
+}
+
+/**
+ * LLM 실패 시 폴백 함수
+ */
+function parseSmartTokensFallback(category, tokens) {
+    console.log(`🔄 폴백 파싱: ${category} - [${tokens.join(', ')}]`);
+    
+    // 간단한 폴백 로직
+    const content = tokens.join(' ');
+    
+    switch (category) {
+        case '할일':
+            const hasComplete = tokens.some(token => ['완료', 'complete', '체크'].includes(token.toLowerCase()));
+            return {
+                category: 'TASK',
+                extractedInfo: {
+                    taskType: hasComplete ? 'complete' : 'add',
+                    content: content.replace(/(완료|complete|체크)/gi, '').trim()
+                }
+            };
+            
+        case '일정':
+            return {
+                category: 'SCHEDULE',
+                extractedInfo: {
+                    scheduleType: 'add',
+                    period: extractPeriodFromContent(content),
+                    content: content
+                }
+            };
+            
+        case '이미지':
+            return {
+                category: 'IMAGE',
+                extractedInfo: {
+                    prompt: content
+                }
+            };
+            
+        case '문서':
+            return {
+                category: 'DRIVE',
+                extractedInfo: {
+                    searchKeyword: tokens[0] || content,
+                    ...(tokens.length >= 2 && { inDocumentKeyword: tokens.slice(1).join(' ') })
+                }
+            };
+            
+        default:
+            return null;
+    }
+}
+
 
 /**
  * 내용에서 시간/날짜 정보를 추출하는 함수
@@ -300,7 +456,7 @@ async function classifyUserInput(message, client, actualContent = null) {
     const recentConversations = client.memory.getRecentConversations(userId);
 
     // 0단계: 숏컷 명령어 확인 (최우선 처리)
-    const shortcutResult = parseShortcutCommand(userInput);
+    const shortcutResult = await parseShortcutCommand(userInput);
     if (shortcutResult) {
         console.log(`🚀 숏컷 명령어 처리: ${shortcutResult.category}`);
         return shortcutResult;

@@ -115,7 +115,19 @@ module.exports = {
                         
                         const result = await quickDeleteEvent(sessionId, eventIndex);
                         if (result.success) {
-                            await interaction.reply({ content: result.message, ephemeral: true });
+                            if (result.showUpdatedList && result.components) {
+                                // 삭제 후 업데이트된 목록과 함께 표시
+                                await interaction.update({
+                                    content: result.message,
+                                    components: result.components
+                                });
+                            } else {
+                                // 삭제만 완료된 경우 (더 이상 일정이 없음)
+                                await interaction.update({
+                                    content: result.message,
+                                    components: []
+                                });
+                            }
                         } else {
                             await interaction.reply({ content: result.message, ephemeral: true });
                         }
