@@ -12,7 +12,7 @@ function parseRelativeDate(period) {
     console.log(`📅 상대적 날짜 파싱: "${period}"`);
     
     const now = new Date();
-    const koreaTime = new Date(now.getTime() + (9 * 60 * 60 * 1000)); // UTC+9
+    const koreaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
     
     console.log(`📅 현재 한국 시간: ${koreaTime.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}`);
     console.log(`📅 현재 날짜: ${koreaTime.getFullYear()}년 ${koreaTime.getMonth() + 1}월 ${koreaTime.getDate()}일 (${getKoreanWeekday(koreaTime)})`);
@@ -22,7 +22,11 @@ function parseRelativeDate(period) {
     let isAllDay = false;
     
     // 시간 정보 추출
+    // 1. 숫자가 포함된 시간 패턴 확인 (우선 처리)
     const timeMatch = period.match(/(오전|오후)?\s*(\d{1,2})시(\d{1,2}분)?/);
+    // 2. 단독 "시" 패턴 확인 (숫자 시간이 없을 때만)
+    const singleTimeMatch = !timeMatch && period.includes('시');
+    
     if (timeMatch) {
         const meridiem = timeMatch[1]; // 오전/오후
         const hour = parseInt(timeMatch[2]);
@@ -44,13 +48,29 @@ function parseRelativeDate(period) {
         
         timeString = `${finalHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         console.log(`⏰ 추출된 시간: ${hour}시${minute > 0 ? minute + '분' : ''} → ${timeString} (${meridiem || '자동판단'})`);
+    } else if (singleTimeMatch) {
+        // 단독 "시" 처리 - 오후 1시(13:00)로 기본 설정
+        timeString = '13:00';
+        console.log(`⏰ 단독 "시" 감지 → 13:00 (오후 1시)로 설정`);
     } else {
         isAllDay = true;
+        timeString = '09:00'; // 기본 시간 설정 (종일 일정이지만 시간 필드는 유지)
         console.log(`📅 시간 정보 없음 - 종일 일정으로 처리`);
     }
     
     // 날짜 계산
-    if (period.includes('차차주')) {
+    // 1. 구체적인 날짜 패턴 확인 (예: "9월16일", "9월 16일", "16일")
+    const specificDateMatch = period.match(/(\d{1,2})월\s*(\d{1,2})일|(\d{1,2})일/);
+    if (specificDateMatch) {
+        const month = specificDateMatch[1] ? parseInt(specificDateMatch[1]) : targetDate.getMonth() + 1;
+        const day = specificDateMatch[2] ? parseInt(specificDateMatch[2]) : parseInt(specificDateMatch[3]);
+        
+        // 현재 연도 사용
+        const year = targetDate.getFullYear();
+        targetDate = new Date(year, month - 1, day);
+        
+        console.log(`📅 구체적 날짜: ${month}월 ${day}일 → ${targetDate.getFullYear()}년 ${targetDate.getMonth() + 1}월 ${targetDate.getDate()}일 (${getKoreanWeekday(targetDate)})`);
+    } else if (period.includes('차차주')) {
         // 차차주 (2주 후) 계산
         const daysToAdd = 14;
         targetDate.setDate(targetDate.getDate() + daysToAdd);
@@ -197,37 +217,53 @@ function formatForGoogleCalendar(parsedDate, title) {
     const { date, time, isAllDay } = parsedDate;
     
     if (isAllDay) {
-        // 종일 일정
-        const startDate = new Date(date);
+        // 종일 일정 - 한국 시간대 기준으로 날짜 문자열 생성
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const startDateStr = `${year}-${month}-${day}`;
+        
         const endDate = new Date(date);
         endDate.setDate(endDate.getDate() + 1);
+        const endYear = endDate.getFullYear();
+        const endMonth = String(endDate.getMonth() + 1).padStart(2, '0');
+        const endDay = String(endDate.getDate()).padStart(2, '0');
+        const endDateStr = `${endYear}-${endMonth}-${endDay}`;
         
         return {
             summary: title,
             start: {
-                date: startDate.toISOString().split('T')[0]
+                date: startDateStr
             },
             end: {
-                date: endDate.toISOString().split('T')[0]
+                date: endDateStr
             }
         };
     } else {
-        // 시간 지정 일정
+        // 시간 지정 일정 - 한국 시간대 기준으로 ISO 문자열 생성
         const [hour, minute] = time.split(':').map(Number);
-        const startDateTime = new Date(date);
-        startDateTime.setHours(hour, minute, 0, 0);
         
-        const endDateTime = new Date(startDateTime);
-        endDateTime.setHours(hour + 1, minute, 0, 0); // 기본 1시간 일정
+        // 한국 시간대 기준으로 ISO 문자열 생성
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hourStr = String(hour).padStart(2, '0');
+        const minuteStr = String(minute).padStart(2, '0');
+        
+        const startDateTimeStr = `${year}-${month}-${day}T${hourStr}:${minuteStr}:00+09:00`;
+        
+        const endHour = hour + 1;
+        const endHourStr = String(endHour).padStart(2, '0');
+        const endDateTimeStr = `${year}-${month}-${day}T${endHourStr}:${minuteStr}:00+09:00`;
         
         return {
             summary: title,
             start: {
-                dateTime: startDateTime.toISOString(),
+                dateTime: startDateTimeStr,
                 timeZone: 'Asia/Seoul'
             },
             end: {
-                dateTime: endDateTime.toISOString(),
+                dateTime: endDateTimeStr,
                 timeZone: 'Asia/Seoul'
             }
         };

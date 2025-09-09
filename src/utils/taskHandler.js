@@ -546,6 +546,10 @@ async function handleTaskCompleteButton(interaction) {
     console.log(`[TASK BUTTON] 할일 완료 요청 - 세션: ${sessionId}, 인덱스: ${taskIndex}`);
     
     try {
+        // 인터랙션 응답 지연 (3초 제한 해결)
+        await interaction.deferUpdate();
+        console.log(`[TASK BUTTON] ⏳ 인터랙션 응답 지연 처리 완료`);
+        
         const result = await executeTaskComplete(sessionId, taskIndex);
         
         if (result.success) {
@@ -583,7 +587,7 @@ async function handleTaskCompleteButton(interaction) {
                     return newRow;
                 });
                 
-                await interaction.update({
+                await interaction.editReply({
                     content: updatedContent,
                     components: updatedComponents
                 });
@@ -594,14 +598,31 @@ async function handleTaskCompleteButton(interaction) {
                     ephemeral: false 
                 });
             } else {
-                await interaction.reply({ content: result.message, ephemeral: true });
+                await interaction.editReply({ 
+                    content: result.message,
+                    components: []
+                });
             }
         } else {
-            await interaction.reply({ content: result.message, ephemeral: true });
+            await interaction.editReply({ 
+                content: result.message,
+                components: []
+            });
         }
     } catch (error) {
         console.error('Task completion button error:', error);
-        await interaction.reply({ content: '❌ 할일 완료 처리 중 오류가 발생했습니다.', ephemeral: true });
+        try {
+            if (interaction.deferred) {
+                await interaction.editReply({ 
+                    content: '❌ 할일 완료 처리 중 오류가 발생했습니다.',
+                    components: []
+                });
+            } else {
+                await interaction.reply({ content: '❌ 할일 완료 처리 중 오류가 발생했습니다.', ephemeral: true });
+            }
+        } catch (replyError) {
+            console.error('Failed to send error response:', replyError);
+        }
     }
 }
 

@@ -1,11 +1,131 @@
 const { askGPTForJSON } = require('./services/gptService');
 
 /**
- * 숏컷 발화를 처리하는 함수
+ * 숏컷 발화를 처리하는 함수 (LLM 기반 스마트 파싱)
  * 예: "할일:4차시 원고검토", "일정:차주 5시 멘토링", "이미지:고양이가 산에서 노는 모습"
+ * 복잡한 예: "일정#완료#차주 화요일 오후 3시 30분 클라이언트 미팅#중요"
  */
 async function parseShortcutCommand(userInput) {
-    console.log(`🚀 숏컷 명령어 확인: "${userInput}"`);
+    console.log(`🚀 LLM 기반 숏컷 명령어 파싱: "${userInput}"`);
+    
+    // LLM을 사용하여 전체 명령어를 한 번에 파싱
+    return await parseShortcutWithLLM(userInput);
+}
+
+/**
+ * LLM을 사용하여 숏컷 명령어를 전체적으로 파싱하는 함수
+ * @param {string} userInput - 원본 숏컷 명령어
+ * @returns {Object|null} 파싱 결과
+ */
+async function parseShortcutWithLLM(userInput) {
+    console.log(`🤖 LLM 전체 숏컷 파싱: "${userInput}"`);
+    
+    const now = new Date();
+    const koreanTime = now.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+    const koreanDate = now.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
+    const koreanWeekday = now.toLocaleDateString('ko-KR', { weekday: 'long', timeZone: 'Asia/Seoul' });
+    
+    const systemPrompt = `You are an expert at parsing Korean shortcut commands with flexible parameter ordering and natural language understanding.
+
+**Current Time Context:**
+- Current Korean Time: ${koreanTime}
+- Current Korean Date: ${koreanDate}
+- Current Weekday: ${koreanWeekday}
+- Current Year: ${now.getFullYear()}
+- Current Month: ${now.getMonth() + 1}
+
+**Shortcut Command Categories:**
+1. **할일 (Tasks)**: 할일, 타스크, 메모, task, todo
+2. **일정 (Schedules)**: 일정, 스케쥴, schedule, 스케줄, 캘린더
+3. **이미지 (Images)**: 이미지, 이미지생성, image, 그림, 그려
+4. **문서 (Documents)**: 문서, 드라이브, 구글드라이브, 구글독, 독스, drive, docs
+
+**Supported Delimiters:** : (colon), # (hash)
+
+**Actions by Category:**
+- **Tasks**: add (추가/등록/생성), complete (완료/체크/끝), delete (삭제/제거), query (조회/목록/보기)
+- **Schedules**: add (추가/등록/생성), delete (삭제/제거), update (수정/변경), query (조회/목록/보기)
+- **Images**: generate (생성/그리기) - always defaults to generate
+- **Documents**: search (검색) - always defaults to search
+
+**Parsing Rules:**
+1. **Category Detection**: Find the category keyword at the beginning (할일, 일정, 이미지, 문서, etc.)
+2. **Flexible Parameter Order**: Parameters can appear in any order after the category
+3. **Smart Content Extraction**: Extract meaningful content regardless of position
+4. **Time Period Recognition**: For schedules, recognize time expressions like:
+   - 오늘, 내일, 모레, 어제
+   - 이번주, 다음주, 차주, 차차주
+   - 월요일, 화요일, 수요일, 목요일, 금요일, 토요일, 일요일
+   - 3시, 오후 2시, 오전 9시 30분, 새벽 2시, 밤 11시
+   - 구체적 날짜: 9월16일, 10월 3일
+5. **Action Detection**: Identify action keywords (추가, 완료, 삭제, 조회, etc.)
+6. **Default Actions**:
+   - Tasks: "add" (unless action specified)
+   - Schedules: "query" if only time period, "add" if content + time
+   - Images: "generate"
+   - Documents: "search"
+
+**Complex Examples:**
+- "일정#완료#차주 화요일 오후 3시 30분 클라이언트 미팅" → category: 일정, action: complete, time: 차주 화요일 오후 3시 30분, content: 클라이언트 미팅
+- "할일:중요:프로젝트 마무리:완료" → category: 할일, action: complete, content: 프로젝트 마무리, priority: 중요
+- "일정:차주:추가:팀 회의:오후 2시" → category: 일정, action: add, time: 차주 오후 2시, content: 팀 회의
+
+**Input to Parse:** "${userInput}"
+
+**Response Format (JSON only):**
+{
+  "category": "할일|일정|이미지|문서",
+  "action": "add|complete|delete|query|generate|search",
+  "content": "main content (task title, event title, image prompt, document name)",
+  "timeExpression": "time/date expression for schedules (차주 화요일 오후 3시, 내일, 오늘, etc.)",
+  "searchKeyword": "search keyword for documents (if different from content)",
+  "priority": "priority level if mentioned (중요, 긴급, etc.)",
+  "additionalInfo": "any other relevant information"
+}
+
+**Important Notes:**
+- Extract the most meaningful content as the main content
+- For schedules, separate time expressions from event content
+- Be flexible with parameter ordering - content can appear anywhere
+- If no explicit action, use default actions based on category and context
+- For documents with search, if content has multiple parts, treat first as document name, rest as search keywords`;
+
+    try {
+        const result = await askGPTForJSON('SHORTCUT_PARSING', 
+            "You are an expert at parsing Korean shortcut commands. Analyze the input and extract all relevant information in the specified JSON format.",
+            systemPrompt,
+            {
+                temperature: 0.1,
+                max_tokens: 400,
+                purpose: '숏컷 명령어 파싱'
+            }
+        );
+        
+        console.log(`✅ LLM 숏컷 파싱 완료:`, {
+            category: result.category,
+            action: result.action,
+            content: result.content,
+            timeExpression: result.timeExpression || '없음'
+        });
+        
+        // 새로운 LLM 파싱 결과를 기존 시스템과 호환되도록 변환
+        return convertNewLLMResult(result, userInput);
+    } catch (error) {
+        console.error(`❌ LLM 숏컷 파싱 실패:`, error.message);
+        console.log(`🔄 기존 토큰 기반 파싱으로 폴백`);
+        
+        // 폴백: 기존 토큰 기반 파싱 사용
+        return parseShortcutCommandFallback(userInput);
+    }
+}
+
+/**
+ * 기존 토큰 기반 숏컷 파싱 (폴백용)
+ * @param {string} userInput - 원본 숏컷 명령어
+ * @returns {Object|null} 파싱 결과
+ */
+function parseShortcutCommandFallback(userInput) {
+    console.log(`🔄 폴백 숏컷 파싱: "${userInput}"`);
     
     // 동의어 사전
     const synonyms = {
@@ -46,13 +166,96 @@ async function parseShortcutCommand(userInput) {
     
     console.log(`✅ 명령어 매칭: ${matchedCategory}`);
     
-    // 나머지 토큰들을 LLM으로 분석
+    // 나머지 토큰들을 간단한 로직으로 분석
     const remainingTokens = tokens.slice(1);
-    return await parseLLMTokens(matchedCategory, remainingTokens, userInput);
+    return parseSmartTokensFallback(matchedCategory, remainingTokens);
 }
 
 /**
- * LLM을 사용하여 토큰들을 분석하고 파라미터 순서 무관하게 처리
+ * 새로운 LLM 파싱 결과를 기존 시스템과 호환되는 형식으로 변환
+ * @param {Object} llmResult - LLM 파싱 결과
+ * @param {string} originalInput - 원본 입력
+ * @returns {Object} 기존 시스템 호환 형식
+ */
+function convertNewLLMResult(llmResult, originalInput) {
+    console.log(`🔄 새로운 LLM 결과 변환:`, llmResult);
+    
+    const { category, action, content, timeExpression, searchKeyword, priority, additionalInfo } = llmResult;
+    
+    switch (category) {
+        case '할일':
+            const taskTypeMap = {
+                'add': 'add',
+                'complete': 'complete', 
+                'delete': 'delete',
+                'query': 'query'
+            };
+            
+            return {
+                category: 'TASK',
+                extractedInfo: {
+                    taskType: taskTypeMap[action] || 'add',
+                    content: content || '',
+                    priority: priority || null,
+                    additionalInfo: additionalInfo || null
+                }
+            };
+            
+        case '일정':
+            const scheduleTypeMap = {
+                'add': 'add',
+                'delete': 'delete',
+                'update': 'update',
+                'query': 'query'
+            };
+            
+            // 시간 표현과 내용을 결합하여 처리
+            let fullContent = content || '';
+            if (timeExpression && action === 'add') {
+                // 일정 추가 시 시간 표현을 포함한 전체 텍스트 생성
+                fullContent = timeExpression + (content ? ` ${content}` : '');
+            }
+            
+            return {
+                category: 'SCHEDULE',
+                extractedInfo: {
+                    scheduleType: scheduleTypeMap[action] || 'query',
+                    content: fullContent,
+                    period: timeExpression || null,
+                    priority: priority || null,
+                    additionalInfo: additionalInfo || null
+                }
+            };
+            
+        case '이미지':
+            return {
+                category: 'IMAGE',
+                extractedInfo: {
+                    imageType: 'generate',
+                    content: content || '',
+                    additionalInfo: additionalInfo || null
+                }
+            };
+            
+        case '문서':
+            return {
+                category: 'DOCUMENT',
+                extractedInfo: {
+                    documentType: 'search',
+                    content: content || '',
+                    searchKeyword: searchKeyword || content || '',
+                    additionalInfo: additionalInfo || null
+                }
+            };
+            
+        default:
+            console.log(`❌ 알 수 없는 카테고리: ${category}`);
+            return null;
+    }
+}
+
+/**
+ * LLM을 사용하여 토큰들을 분석하고 파라미터 순서 무관하게 처리 (레거시)
  * @param {string} category - 매칭된 카테고리 ('할일', '일정', '이미지', '문서')
  * @param {Array} tokens - 분석할 토큰 배열
  * @param {string} originalInput - 원본 입력
@@ -584,4 +787,4 @@ IMPORTANT:
     }
 }
 
-module.exports = { classifyUserInput };
+module.exports = { classifyUserInput, parseShortcutCommand };

@@ -81,25 +81,32 @@ module.exports = {
                         
                         console.log(`[INTERACTION] 🗑️ 일정 삭제 확인 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
                         
+                        // 인터랙션 응답 지연 (3초 제한 해결)
+                        await interaction.deferUpdate();
+                        console.log(`[INTERACTION] ⏳ 인터랙션 응답 지연 처리 완료`);
+                        
                         const { executeScheduleDelete } = require('../utils/scheduleHandler');
                         const result = await executeScheduleDelete(sessionId, eventIndex);
                         
                         if (result.success) {
                             if (result.showUpdatedList && result.components) {
                                 // 삭제 후 업데이트된 목록과 함께 표시
-                                await interaction.update({
+                                await interaction.editReply({
                                     content: result.message,
                                     components: result.components
                                 });
                             } else {
                                 // 삭제만 완료된 경우
-                                await interaction.update({
+                                await interaction.editReply({
                                     content: result.message,
                                     components: []
                                 });
                             }
                         } else {
-                            await interaction.reply({ content: result.message, ephemeral: true });
+                            await interaction.editReply({
+                                content: result.message,
+                                components: []
+                            });
                         }
                     } else {
                         await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
@@ -112,6 +119,10 @@ module.exports = {
                         const eventIndex = parseInt(parts[parts.length - 1]); // 마지막 부분이 eventIndex
                         
                         console.log(`[INTERACTION] 🗑️ 빠른 삭제 요청 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
+                        
+                        // 인터랙션 응답 지연 (3초 제한 해결)
+                        await interaction.deferUpdate();
+                        console.log(`[INTERACTION] ⏳ 인터랙션 응답 지연 처리 완료`);
                         
                         const result = await quickDeleteEvent(sessionId, eventIndex);
                         
@@ -127,21 +138,24 @@ module.exports = {
                             if (result.showUpdatedList && result.components) {
                                 // 삭제 후 업데이트된 목록과 함께 표시
                                 console.log(`[INTERACTION] 📝 메시지 업데이트 (목록 포함)`);
-                                await interaction.update({
+                                await interaction.editReply({
                                     content: result.message,
                                     components: result.components
                                 });
                             } else {
                                 // 삭제만 완료된 경우 (더 이상 일정이 없음)
                                 console.log(`[INTERACTION] 📝 메시지 업데이트 (목록 없음)`);
-                                await interaction.update({
+                                await interaction.editReply({
                                     content: result.message,
                                     components: []
                                 });
                             }
                         } else {
                             console.log(`[INTERACTION] ❌ 삭제 실패`);
-                            await interaction.reply({ content: result.message, ephemeral: true });
+                            await interaction.editReply({
+                                content: result.message,
+                                components: []
+                            });
                         }
                     } else {
                         await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
