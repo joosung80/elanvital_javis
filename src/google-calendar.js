@@ -10,6 +10,8 @@ const {authorize} = require('./google-auth');
  */
 async function listEvents(auth, timeMin, timeMax) {
   const calendar = google.calendar({version: 'v3', auth});
+  
+  console.log(`[GOOGLE API] Calendar.events.list() 호출 - 범위: ${timeMin} ~ ${timeMax}`);
   const res = await calendar.events.list({
     calendarId: 'primary',
     timeMin: timeMin,
@@ -18,6 +20,8 @@ async function listEvents(auth, timeMin, timeMax) {
     singleEvents: true,
     orderBy: 'startTime',
   });
+  console.log(`[GOOGLE API] ✅ 캘린더 이벤트 조회 완료: ${res.data.items?.length || 0}개`);
+  
   return res.data.items;
 }
 
@@ -28,10 +32,14 @@ async function listEvents(auth, timeMin, timeMax) {
  */
 async function addEvent(auth, event) {
     const calendar = google.calendar({ version: 'v3', auth });
+    
+    console.log(`[GOOGLE API] Calendar.events.insert() 호출 - "${event.summary}" 추가`);
     const res = await calendar.events.insert({
         calendarId: 'primary',
         resource: event,
     });
+    console.log(`[GOOGLE API] ✅ 캘린더 이벤트 생성 완료: "${res.data.summary}" (ID: ${res.data.id})`);
+    
     return res.data;
 }
 
@@ -42,10 +50,14 @@ async function addEvent(auth, event) {
  */
 async function deleteEvent(auth, eventId) {
     const calendar = google.calendar({ version: 'v3', auth });
+    
+    console.log(`[GOOGLE API] Calendar.events.delete() 호출 - ID: ${eventId}`);
     const res = await calendar.events.delete({
         calendarId: 'primary',
         eventId: eventId,
     });
+    console.log(`[GOOGLE API] ✅ 캘린더 이벤트 삭제 완료: ID ${eventId}`);
+    
     return res.data;
 }
 
@@ -57,11 +69,15 @@ async function deleteEvent(auth, eventId) {
  */
 async function updateEvent(auth, eventId, eventData) {
     const calendar = google.calendar({ version: 'v3', auth });
+    
+    console.log(`[GOOGLE API] Calendar.events.update() 호출 - ID: ${eventId}, 제목: "${eventData.summary}"`);
     const res = await calendar.events.update({
         calendarId: 'primary',
         eventId: eventId,
         resource: eventData,
     });
+    console.log(`[GOOGLE API] ✅ 캘린더 이벤트 수정 완료: "${res.data.summary}" (ID: ${res.data.id})`);
+    
     return res.data;
 }
 
@@ -74,6 +90,8 @@ async function updateEvent(auth, eventId, eventData) {
  */
 async function searchEvents(auth, query, timeMin, timeMax) {
     const calendar = google.calendar({ version: 'v3', auth });
+    
+    console.log(`[GOOGLE API] Calendar.events.list() 호출 - 검색: "${query}", 범위: ${timeMin} ~ ${timeMax}`);
     const res = await calendar.events.list({
         calendarId: 'primary',
         q: query,
@@ -83,6 +101,8 @@ async function searchEvents(auth, query, timeMin, timeMax) {
         singleEvents: true,
         orderBy: 'startTime',
     });
+    console.log(`[GOOGLE API] ✅ 캘린더 이벤트 검색 완료: ${res.data.items?.length || 0}개`);
+    
     return res.data.items;
 }
 

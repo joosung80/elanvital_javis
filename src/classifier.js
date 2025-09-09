@@ -167,11 +167,11 @@ ${formattedConversations}
 [CATEGORIES]
 {
     "HELP": "User is asking for help about the bot's capabilities or commands. (e.g., '도와줘', '뭐 할 수 있어?', '명령어 알려줘').",
-    "SCHEDULE": "User is asking to query, add, delete, or update a schedule. MUST extract 'scheduleType' ('query', 'add', 'delete', 'update') and 'period'. For 'add' and 'update', also extract 'content'.",
+    "SCHEDULE": "User is asking to query, add, delete, or update a CALENDAR EVENT with specific date/time. These are time-bound events. MUST extract 'scheduleType' ('query', 'add', 'delete', 'update') and 'period'. For 'add' and 'update', also extract 'content'. Examples: '내일 3시 회의', '다음주 월요일 프레젠테이션 일정 추가'.",
     "IMAGE": "User is asking to generate or edit an image. (e.g., '고양이 그리기', '이 이미지 수정하기').",
     "DRIVE": "User is asking to search, read, or summarize documents in Google Drive. This can also be a combined request to find a document AND search for a keyword inside it. Keywords: '드라이브', '독스', '시트', '문서', '파일', '자료'. MUST extract 'searchKeyword'. If the user wants to search for a keyword inside the document, ALSO extract 'inDocumentKeyword'.",
     "MEMORY": "User is asking the bot to remember or recall something. (e.g., '이거 기억해', '아까 뭐라고 했지?').",
-    "TASK": "User is asking to manage a to-do list. (e.g., '할 일 목록 보여줘', '할 일 추가'). MUST extract 'taskType' ('query', 'add', 'complete').",
+    "TASK": "User is asking to manage a TO-DO LIST item. These are tasks to be completed, NOT time-bound events. MUST extract 'taskType' ('query', 'add', 'complete') and 'content' (for 'add' and 'complete'). Examples: '보고서 작성 할일 추가', '회의 준비 할일 완료', '할일 목록 보여줘'. DO NOT extract 'period' for tasks.",
     "GENERAL": "A general conversation or a topic that doesn't fit into other categories."
 }
 
@@ -179,18 +179,25 @@ ${formattedConversations}
 - For DRIVE, if the user says '해커스 문서 찾아줘', 'searchKeyword' MUST be '해커스', excluding '문서'.
 - For DRIVE, if the user says '패스워드 문서에서 넷플릭스 검색', 'searchKeyword' MUST be '패스워드', and 'inDocumentKeyword' MUST be '넷플릭스'.
 - For SCHEDULE, if the user says '다음 주 수요일 3시에 회의 추가해줘', 'period' is '다음 주 수요일 3시' and 'content' is '회의'.
+- For TASK, if the user says 'CJ 강연 스케줄 협의 내용 할일 추가해줘', 'taskType' is 'add' and 'content' is 'CJ 강연 스케줄 협의 내용'. DO NOT include 'period' for tasks.
 
 [RESPONSE FORMAT]
 {
   "category": "CATEGORY_NAME",
   "extractedInfo": {
-    "scheduleType": "...",
-    "period": "...",
-    "content": "...",
-    "searchKeyword": "...",
-    "taskType": "..."
+    "scheduleType": "...", // Only for SCHEDULE
+    "period": "...", // Only for SCHEDULE
+    "content": "...", // For SCHEDULE (add/update) and TASK (add/complete)
+    "searchKeyword": "...", // Only for DRIVE
+    "inDocumentKeyword": "...", // Only for DRIVE
+    "taskType": "..." // Only for TASK
   }
 }
+
+IMPORTANT: 
+- TASK should NEVER have 'period' field
+- SCHEDULE should NEVER have 'taskType' field
+- Only include relevant fields for each category
 `;
 
     try {

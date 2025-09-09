@@ -404,12 +404,10 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
  * @returns {Object} 조회 결과
  */
 async function getScheduleSummary(period = '오늘') {
-    console.log(`[SCHEDULE DEBUG] 📋 일정 조회 시작 - 기간: "${period}"`);
+    console.log(`[SCHEDULE] 일정 조회: "${period}"`);
     
     try {
-        console.log(`[SCHEDULE DEBUG] 🔐 Google Calendar 인증 중...`);
         const auth = await authorize();
-        console.log(`[SCHEDULE DEBUG] ✅ 인증 완료`);
         
         const timeRange = await getTimeRangeFromPeriod(period);
         

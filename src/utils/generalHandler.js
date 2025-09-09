@@ -72,10 +72,7 @@ async function handleGeneralRequest(message, actualContent = null) {
     const userId = author.id;
     const userInput = actualContent || content;
     
-    console.log('[GENERAL_DEBUG] 🤖 일반 질문 처리 시작');
-    console.log(`[GENERAL_DEBUG] 👤 사용자 ID: ${userId}`);
-    console.log(`[GENERAL_DEBUG] 💬 질문: "${userInput}"`);
-    console.log(`[GENERAL_DEBUG] 📎 첨부파일 수: ${message.attachments.size}`);
+    console.log(`[GENERAL] 일반 질문 처리: "${userInput}"`);
 
     try {
         const userMemory = client.memory.getUserMemory(userId);
@@ -106,7 +103,7 @@ ${formattedConversations}
         return botResponse;
 
     } catch (error) {
-        console.error('[GENERAL_DEBUG] ❌ 일반 질문 처리 오류:', error);
+        console.error('[GENERAL] ❌ 일반 질문 처리 오류:', error);
         return '죄송합니다, 질문을 처리하는 중에 오류가 발생했습니다.';
     }
 }

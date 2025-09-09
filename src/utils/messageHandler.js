@@ -44,7 +44,7 @@ async function handleMessageCreate(message, client) {
                 await handleScheduleRequest(message, classification);
                 break;
             case 'TASK':
-                await handleTaskRequest(message, classification, client.taskSessions);
+                await handleTaskRequest(message, classification, client.taskSessions, actualContent);
                 break;
             case 'MEMORY':
                 // TODO: handleMemoryRequest 함수 구현 필요

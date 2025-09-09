@@ -4,10 +4,10 @@ const axios = require('axios');
 const FormData = require('form-data');
 
 async function transcribeAudio(audioUrl, filename) {
-  console.log(`[VOICE DEBUG] 🎤 음성 변환 시작 - 파일: ${filename}`);
+  console.log(`[VOICE] 음성 변환 시작: ${filename}`);
   try {
     const audioBuffer = await downloadFile(audioUrl);
-    console.log(`[VOICE DEBUG] 📥 파일 다운로드 완료 - 크기: ${audioBuffer.length} bytes`);
+    console.log(`[VOICE] 파일 다운로드 완료: ${audioBuffer.length} bytes`);
     if (audioBuffer.length > 25 * 1024 * 1024) throw new Error('파일 크기가 25MB를 초과합니다.');
     if (audioBuffer.length < 100) throw new Error('파일 크기가 너무 작습니다.');
     
@@ -17,7 +17,7 @@ async function transcribeAudio(audioUrl, filename) {
     formData.append('model', 'whisper-1');
     formData.append('language', 'ko');
     
-    console.log(`[VOICE DEBUG] 📤 Whisper API 요청 전송 중...`);
+    console.log(`[VOICE] Whisper API 요청 전송`);
     
     const response = await axios.post('https://api.openai.com/v1/audio/transcriptions', formData, {
       headers: {
@@ -28,10 +28,10 @@ async function transcribeAudio(audioUrl, filename) {
       maxBodyLength: Infinity
     });
     
-    console.log(`[VOICE DEBUG] ✅ 음성 변환 완료: "${response.data.text}"`);
+    console.log(`[VOICE] ✅ 음성 변환 완료: "${response.data.text}"`);
     return response.data.text;
   } catch (error) {
-    console.error(`[VOICE DEBUG] ❌ 음성 변환 실패:`, error.response ? error.response.data : error.message);
+    console.error(`[VOICE] ❌ 음성 변환 실패:`, error.response ? error.response.data : error.message);
     throw error;
   }
 }

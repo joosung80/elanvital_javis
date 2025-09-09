@@ -14,9 +14,12 @@ const taskSessions = new Map();
 async function listTasks() {
     const auth = await authorize();
     const service = google.tasks({ version: 'v1', auth });
+    
+    console.log('[GOOGLE API] Tasks.tasklists.list() 호출');
     const taskLists = await service.tasklists.list({
         maxResults: 10,
     });
+    console.log(`[GOOGLE API] ✅ 태스크 리스트 조회 완료: ${taskLists.data.items?.length || 0}개`);
 
     if (!taskLists.data.items || taskLists.data.items.length === 0) {
         console.log('No task lists found.');
@@ -25,10 +28,13 @@ async function listTasks() {
 
     let allTasks = [];
     for (const tasklist of taskLists.data.items) {
+        console.log(`[GOOGLE API] Tasks.tasks.list(${tasklist.id}) 호출`);
         const tasks = await service.tasks.list({
             tasklist: tasklist.id,
             showCompleted: false // Fetch only incomplete tasks
         });
+        console.log(`[GOOGLE API] ✅ 태스크 조회 완료: ${tasks.data.items?.length || 0}개`);
+        
         if (tasks.data.items) {
             allTasks = allTasks.concat(tasks.data.items.map(task => ({...task, tasklistId: tasklist.id, tasklistTitle: tasklist.title})));
         }
@@ -138,6 +144,7 @@ async function completeTask(taskId, tasklistId) {
     const auth = await authorize();
     const service = google.tasks({ version: 'v1', auth });
 
+    console.log(`[GOOGLE API] Tasks.tasks.patch(${taskId}) 호출 - 완료 처리`);
     const response = await service.tasks.patch({
         tasklist: tasklistId,
         task: taskId,
@@ -145,8 +152,8 @@ async function completeTask(taskId, tasklistId) {
             status: 'completed'
         }
     });
+    console.log(`[GOOGLE API] ✅ 태스크 완료 처리 완료: "${response.data.title}"`);
 
-    console.log(`Task '${response.data.title}' completed.`);
     return response.data;
 }
 
@@ -227,9 +234,10 @@ async function addMultipleTasks(taskTitles) {
     const auth = await authorize();
     const service = google.tasks({ version: 'v1', auth });
     
-    // Get the first task list
+    console.log('[GOOGLE API] Tasks.tasklists.list() 호출 - 태스크 리스트 조회');
     const res = await service.tasklists.list();
     const taskLists = res.data.items;
+    console.log(`[GOOGLE API] ✅ 태스크 리스트 조회 완료: ${taskLists?.length || 0}개`);
 
     if (!taskLists || taskLists.length === 0) {
         throw new Error('No task lists found. Please create a task list in Google Tasks first.');
@@ -246,15 +254,16 @@ async function addMultipleTasks(taskTitles) {
                 title: title.trim(),
             };
 
+            console.log(`[GOOGLE API] Tasks.tasks.insert() 호출 - "${title}" 추가`);
             const response = await service.tasks.insert({
                 tasklist: tasklistId,
                 requestBody: task,
             });
+            console.log(`[GOOGLE API] ✅ 태스크 생성 완료: "${response.data.title}"`);
 
-            console.log('New task created:', response.data.title);
             createdTasks.push(response.data);
         } catch (error) {
-            console.error(`Failed to create task "${title}":`, error);
+            console.error(`[GOOGLE API] ❌ 태스크 생성 실패 "${title}":`, error);
             errors.push({ title, error: error.message });
         }
     }
@@ -293,22 +302,35 @@ async function addTask(title) {
     return response.data;
 }
 
-async function handleTaskRequest(message, classification, taskSessions) {
-    console.log(`📝 할일 요청 처리:`);
-    console.log(`- 전체 분류 결과:`, classification);
-    console.log(`- extractedInfo:`, classification.extractedInfo);
-    
+async function handleTaskRequest(message, classification, taskSessions, actualContent = null) {
     const taskType = classification.extractedInfo?.taskType;
-    console.log(`- taskType: "${taskType}"`);
+    console.log(`[TASK] ${taskType} 요청 처리`);
     
     switch (taskType) {
         case 'add':
             try {
-                const content = classification.extractedInfo.content;
-                if (!content) {
-                    await message.reply("추가할 할 일 내용이 없습니다. 다시 시도해주세요.");
-                    return "할 일 내용 없음";
+                let content = classification.extractedInfo.content;
+                
+                if (!content || content.trim() === '') {
+                    // content가 없으면 원본 메시지에서 할일 내용을 추출해보기
+                    const userInput = actualContent || message.content;
+                    const taskKeywords = ['할일', '할 일', '추가해줘', '추가해주세요', '추가하기', '등록해줘', '등록해주세요'];
+                    let extractedContent = userInput;
+                    
+                    // 할일 관련 키워드 제거하여 실제 할일 내용만 추출
+                    taskKeywords.forEach(keyword => {
+                        extractedContent = extractedContent.replace(new RegExp(keyword, 'gi'), '').trim();
+                    });
+                    
+                    if (extractedContent && extractedContent.length > 0) {
+                        content = extractedContent; // 추출된 내용을 content로 설정
+                    } else {
+                        await message.reply("추가할 할 일 내용이 없습니다. 다시 시도해주세요.");
+                        return "할 일 내용 없음";
+                    }
                 }
+
+                console.log(`[TASK] 추가 요청: "${content}"`);
 
                 // 단일/복수 할 일을 모두 처리할 수 있는 파서 사용
                 const tasksToAdd = parseMultipleTasks(content);
@@ -342,8 +364,86 @@ async function handleTaskRequest(message, classification, taskSessions) {
         case 'query':
             return await executeTaskList(message);
         case 'complete':
-            // 여기에 할 일 완료 로직 구현
-            break;
+            try {
+                let content = classification.extractedInfo.content;
+                
+                if (!content || content.trim() === '') {
+                    // content가 없으면 원본 메시지에서 할일 내용을 추출해보기
+                    const userInput = actualContent || message.content;
+                    const taskKeywords = ['할일', '할 일', '완료해줘', '완료해주세요', '완료하기'];
+                    let extractedContent = userInput;
+                    
+                    // 할일 관련 키워드 제거하여 실제 할일 내용만 추출
+                    taskKeywords.forEach(keyword => {
+                        extractedContent = extractedContent.replace(new RegExp(keyword, 'gi'), '').trim();
+                    });
+                    
+                    if (extractedContent && extractedContent.length > 0) {
+                        content = extractedContent; // 추출된 내용을 content로 설정
+                    } else {
+                        await message.reply("완료할 할 일 내용이 없습니다. 다시 시도해주세요.");
+                        return "할 일 내용 없음";
+                    }
+                }
+
+                console.log(`[TASK] 완료 요청: "${content}"`);
+                
+                // 할일 검색 및 완료 처리
+                const result = await searchAndCacheTasks(content);
+                
+                if (result.autoCompleted && result.completedTask) {
+                    // 자동 완료된 경우
+                    const reply = `✅ **'${result.completedTask.title}'** 할 일을 완료처리 했습니다.\n` +
+                                `🎯 유사도: ${(result.completedTask.similarity * 100).toFixed(1)}%`;
+                    await message.reply(reply);
+                    return reply;
+                } else if (result.matchedTasks && result.matchedTasks.length > 0) {
+                    // 여러 후보가 있는 경우 선택 UI 제공
+                    let reply = `🔍 **"${content}"**와 유사한 할 일을 찾았습니다:\n\n`;
+                    
+                    const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                    const buttons = [];
+                    const maxButtons = Math.min(result.matchedTasks.length, 5); // 최대 5개
+                    
+                    result.matchedTasks.slice(0, maxButtons).forEach((task, index) => {
+                        reply += `${index + 1}. ${task.title} (${(task.similarity * 100).toFixed(1)}% 유사)\n`;
+                        
+                        const button = new ButtonBuilder()
+                            .setCustomId(`complete_task_${result.sessionId}_${index}`)
+                            .setLabel(`${index + 1}번 완료`)
+                            .setStyle(ButtonStyle.Success);
+                        buttons.push(button);
+                    });
+                    
+                    reply += "\n💡 **완료할 할일을 선택해주세요:**";
+                    
+                    // 버튼을 5개씩 행으로 나누기
+                    const rows = [];
+                    for (let i = 0; i < buttons.length; i += 5) {
+                        const row = new ActionRowBuilder()
+                            .addComponents(buttons.slice(i, i + 5));
+                        rows.push(row);
+                    }
+                    
+                    await message.reply({
+                        content: reply,
+                        components: rows
+                    });
+                    
+                    return reply;
+                } else {
+                    // 일치하는 할일이 없는 경우
+                    const reply = `❌ **"${content}"**와 일치하는 할 일을 찾을 수 없습니다.\n\n` +
+                                `💡 할일 목록을 확인하려면 "할일 목록"이라고 말해보세요.`;
+                    await message.reply(reply);
+                    return reply;
+                }
+
+            } catch (error) {
+                console.error('Google Tasks 할 일 완료 오류:', error);
+                await message.reply("Google Tasks에서 할 일을 완료하는 중 오류가 발생했습니다.");
+                return "Google Tasks API 오류";
+            }
         default:
             return "알 수 없는 할 일 요청입니다.";
     }
