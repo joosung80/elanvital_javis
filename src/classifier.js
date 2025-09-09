@@ -74,9 +74,15 @@ async function parseLLMTokens(category, tokens, originalInput) {
 **Rules**:
 1. Identify the ACTION from the tokens (추가, 완료, 삭제, 조회, etc.)
 2. Extract the CONTENT (everything that's not an action)
-3. If no action is found, default to "add" for tasks/schedules, "generate" for images, "search" for documents
+3. Default actions when no explicit action found:
+   - Tasks (할일): "add" 
+   - Schedules (일정): "query" if content looks like time period (오늘, 내일, 차주, 다음주, 이번주, etc.), otherwise "add"
+   - Images (이미지): "generate"
+   - Documents (문서): "search"
 4. For documents, if there are 2+ content tokens, treat first as document name, rest as search keywords
 5. Parameter order doesn't matter - be flexible
+6. Time period keywords for schedules: 오늘, 내일, 모레, 어제, 이번주, 다음주, 차주, 차차주, 이번달, 다음달, etc.
+7. IMPORTANT: Do NOT add punctuation (commas, periods, etc.) to the extracted content. Keep it clean and simple.
 
 **Input Tokens**: [${tokens.join(', ')}]
 
@@ -141,10 +147,18 @@ function convertLLMResult(category, llmResult, originalTokens) {
             
             const fullContent = llmResult.content || originalTokens.join(' ');
             
+            // 액션이 없고 내용이 순수 시간 표현인 경우 조회로 처리
+            let scheduleType = scheduleTypeMap[llmResult.action];
+            if (!scheduleType) {
+                const timePeriodKeywords = ['오늘', '내일', '모레', '어제', '이번주', '다음주', '차주', '차차주', '이번달', '다음달'];
+                const isPureTimePeriod = timePeriodKeywords.includes(fullContent.trim());
+                scheduleType = isPureTimePeriod ? 'query' : 'add';
+            }
+            
             return {
                 category: 'SCHEDULE',
                 extractedInfo: {
-                    scheduleType: scheduleTypeMap[llmResult.action] || 'add',
+                    scheduleType: scheduleType,
                     period: extractPeriodFromContent(fullContent),
                     content: fullContent
                 }
@@ -203,10 +217,14 @@ function parseSmartTokensFallback(category, tokens) {
             };
             
         case '일정':
+            // 순수 시간 표현이면 조회, 아니면 추가
+            const timePeriodKeywords = ['오늘', '내일', '모레', '어제', '이번주', '다음주', '차주', '차차주', '이번달', '다음달'];
+            const isPureTimePeriod = timePeriodKeywords.includes(content.trim());
+            
             return {
                 category: 'SCHEDULE',
                 extractedInfo: {
-                    scheduleType: 'add',
+                    scheduleType: isPureTimePeriod ? 'query' : 'add',
                     period: extractPeriodFromContent(content),
                     content: content
                 }

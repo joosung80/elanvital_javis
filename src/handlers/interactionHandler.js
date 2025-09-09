@@ -114,21 +114,33 @@ module.exports = {
                         console.log(`[INTERACTION] 🗑️ 빠른 삭제 요청 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
                         
                         const result = await quickDeleteEvent(sessionId, eventIndex);
+                        
+                        console.log(`[INTERACTION] 🔍 quickDeleteEvent 결과:`, {
+                            success: result.success,
+                            showUpdatedList: result.showUpdatedList,
+                            hasComponents: !!result.components,
+                            hasMessage: !!result.message,
+                            componentsLength: result.components ? result.components.length : 0
+                        });
+                        
                         if (result.success) {
                             if (result.showUpdatedList && result.components) {
                                 // 삭제 후 업데이트된 목록과 함께 표시
+                                console.log(`[INTERACTION] 📝 메시지 업데이트 (목록 포함)`);
                                 await interaction.update({
                                     content: result.message,
                                     components: result.components
                                 });
                             } else {
                                 // 삭제만 완료된 경우 (더 이상 일정이 없음)
+                                console.log(`[INTERACTION] 📝 메시지 업데이트 (목록 없음)`);
                                 await interaction.update({
                                     content: result.message,
                                     components: []
                                 });
                             }
                         } else {
+                            console.log(`[INTERACTION] ❌ 삭제 실패`);
                             await interaction.reply({ content: result.message, ephemeral: true });
                         }
                     } else {

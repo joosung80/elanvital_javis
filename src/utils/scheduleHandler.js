@@ -16,8 +16,22 @@ async function addScheduleEventDirect(period, content) {
         // 상대적 날짜 파싱
         const parsedDate = parseRelativeDate(period);
         
-        // 제목 추출 (period에서 시간 정보 제거)
-        const title = content.replace(/(차주|다음주|이번주|내일|모레|오늘)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)?\s*(오전|오후)?\s*\d{1,2}시(\d{1,2}분)?\s*/g, '').trim() || content;
+        // 제목 추출 (시간 정보와 액션 키워드 제거)
+        let title = content
+            .replace(/(차주|다음주|이번주|내일|모레|오늘)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)?\s*(오전|오후)?\s*\d{1,2}시(\d{1,2}분)?\s*/g, '') // 시간 정보 제거
+            .replace(/(추가|등록|생성|add)\s*/gi, '') // 액션 키워드 제거
+            .replace(/[,，。.!?]+/g, '') // 구두점 제거
+            .trim();
+        
+        // 제목이 비어있으면 원본 content에서 시간만 제거
+        if (!title) {
+            title = content.replace(/(차주|다음주|이번주|내일|모레|오늘)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)?\s*(오전|오후)?\s*\d{1,2}시(\d{1,2}분)?\s*/g, '').trim();
+        }
+        
+        // 그래도 비어있으면 기본값 사용
+        if (!title) {
+            title = content;
+        }
         
         // Google Calendar 형식으로 변환
         const calendarEvent = formatForGoogleCalendar(parsedDate, title);
@@ -353,7 +367,8 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
             
             return {
                 success: true,
-                message: `**${timeRange.description}: ${startStr} ~ ${endStr}**에 예정된 일정이 없습니다.`
+                message: `**${timeRange.description}: ${startStr} ~ ${endStr}**에 예정된 일정이 없습니다.`,
+                events: []  // 빈 이벤트 배열 추가
             };
         }
         
@@ -450,7 +465,8 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
             message: message,
             components: actionRows,
             isInteractive: true,
-            sessionId: sessionId
+            sessionId: sessionId,
+            events: events  // 이벤트 배열 추가
         };
         
     } catch (error) {
@@ -498,7 +514,8 @@ async function getScheduleSummary(period = '오늘') {
             
             return {
                 success: true,
-                message: `**${timeRange.description}: ${startStr} ~ ${endStr}**에 예정된 일정이 없습니다.`
+                message: `**${timeRange.description}: ${startStr} ~ ${endStr}**에 예정된 일정이 없습니다.`,
+                events: []  // 빈 이벤트 배열 추가
             };
         }
         
@@ -1129,6 +1146,13 @@ async function quickDeleteEvent(sessionId, eventIndex) {
         // 삭제 후 같은 기간의 일정 목록을 다시 조회
         console.log(`[QUICK DELETE] 📋 삭제 후 목록 재조회 중... 기간: "${sessionData.period}"`);
         const updatedSchedule = await getInteractiveSchedule(sessionData.period, sessionData.userId);
+        
+        console.log(`[QUICK DELETE] 📊 재조회 결과:`, {
+            success: updatedSchedule.success,
+            hasEvents: updatedSchedule.events ? updatedSchedule.events.length : 'undefined',
+            hasComponents: !!updatedSchedule.components,
+            hasMessage: !!updatedSchedule.message
+        });
         
         const deleteMessage = `✅ **일정이 삭제되었습니다!**\n\n🗑️ **${dateStr} ${timeStr}** - ${eventToDelete.summary}`;
         
