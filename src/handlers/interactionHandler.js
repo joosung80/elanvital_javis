@@ -1,7 +1,7 @@
 const { Events, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
 const { handleTaskCompleteButton } = require('../utils/taskHandler');
 const { generateImageWithOpenAI } = require('../utils/imageHandler');
-const { handleDeleteConfirmation, quickDeleteEvent } = require('../utils/scheduleHandler');
+const { quickDeleteEvent } = require('../utils/scheduleHandler');
 const { handleDriveReadButton } = require('../utils/driveHandler');
 const { handleSummarizeButton, handleSearchInDocument } = require('../utils/documentHandler');
 
@@ -73,7 +73,37 @@ module.exports = {
                     // 기존 select_task_ 처리 (필요시 유지)
                     console.log('Legacy select_task_ button clicked');
                 } else if (customId.startsWith('delete_schedule_')) {
-                    await handleDeleteConfirmation(interaction, client.scheduleSessions);
+                    // delete_schedule_sessionId_eventIndex 형태 파싱
+                    const parts = customId.split('_');
+                    if (parts.length >= 4) {
+                        const sessionId = parts.slice(2, -1).join('_');
+                        const eventIndex = parseInt(parts[parts.length - 1]);
+                        
+                        console.log(`[INTERACTION] 🗑️ 일정 삭제 확인 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
+                        
+                        const { executeScheduleDelete } = require('../utils/scheduleHandler');
+                        const result = await executeScheduleDelete(sessionId, eventIndex);
+                        
+                        if (result.success) {
+                            if (result.showUpdatedList && result.components) {
+                                // 삭제 후 업데이트된 목록과 함께 표시
+                                await interaction.update({
+                                    content: result.message,
+                                    components: result.components
+                                });
+                            } else {
+                                // 삭제만 완료된 경우
+                                await interaction.update({
+                                    content: result.message,
+                                    components: []
+                                });
+                            }
+                        } else {
+                            await interaction.reply({ content: result.message, ephemeral: true });
+                        }
+                    } else {
+                        await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
+                    }
                 } else if (customId.startsWith('quick_delete_')) {
                     // quick_delete_sessionId_eventIndex 형태 파싱
                     const parts = customId.split('_');

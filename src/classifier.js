@@ -1,5 +1,197 @@
 const { askGPTForJSON } = require('./services/gptService');
 
+/**
+ * 숏컷 발화를 처리하는 함수
+ * 예: "할일:4차시 원고검토", "일정:차주 5시 멘토링", "이미지:고양이가 산에서 노는 모습"
+ */
+function parseShortcutCommand(userInput) {
+    console.log(`🚀 숏컷 명령어 확인: "${userInput}"`);
+    
+    // 동의어 사전
+    const synonyms = {
+        '할일': ['할일', '타스크', '메모', 'task', 'todo'],
+        '일정': ['일정', '스케쥴', 'schedule', '스케줄', '캘린더'],
+        '이미지': ['이미지', '이미지생성', 'image', '그림', '그려'],
+        '문서': ['문서', '드라이브', '구글드라이브', '구글독', '독스', 'drive', 'docs']
+    };
+    
+    // 구분자 패턴 (콜론, 컴마, 탭, 스페이스, 대시 등)
+    const delimiters = /[:\s,\t\-—]/;
+    
+    // 첫 번째 구분자를 찾아서 명령어와 내용 분리
+    const delimiterMatch = userInput.match(delimiters);
+    if (!delimiterMatch) {
+        console.log(`❌ 구분자 없음`);
+        return null;
+    }
+    
+    const delimiterIndex = delimiterMatch.index;
+    const command = userInput.substring(0, delimiterIndex).trim().toLowerCase();
+    const content = userInput.substring(delimiterIndex + 1).trim();
+    
+    if (!content) {
+        console.log(`❌ 내용 없음`);
+        return null;
+    }
+    
+    console.log(`🔍 명령어: "${command}", 내용: "${content}"`);
+    
+    // 동의어 매칭
+    for (const [category, synonymList] of Object.entries(synonyms)) {
+        if (synonymList.some(synonym => synonym === command)) {
+            console.log(`✅ 숏컷 매칭: ${category} - "${content}"`);
+            
+            switch (category) {
+                case '할일':
+                    return {
+                        category: 'TASK',
+                        extractedInfo: {
+                            taskType: 'add',
+                            content: content
+                        }
+                    };
+                    
+                case '일정':
+                    return {
+                        category: 'SCHEDULE',
+                        extractedInfo: {
+                            scheduleType: 'add',
+                            period: extractPeriodFromContent(content),
+                            content: content
+                        }
+                    };
+                    
+                case '이미지':
+                    return {
+                        category: 'IMAGE',
+                        extractedInfo: {
+                            prompt: content
+                        }
+                    };
+                    
+                case '문서':
+                    return parseDocumentShortcut(content);
+            }
+        }
+    }
+    
+    console.log(`❌ 숏컷 매칭 실패`);
+    return null;
+}
+
+/**
+ * 내용에서 시간/날짜 정보를 추출하는 함수
+ * 복합 시간 표현도 처리 (예: "차주 5시", "내일 오후 3시")
+ */
+function extractPeriodFromContent(content) {
+    console.log(`📅 시간 정보 추출 시작: "${content}"`);
+    
+    // 1단계: 복합 시간 표현 패턴 (날짜 + 시간)
+    const complexTimePatterns = [
+        // "차차주 5시", "2주후 3시", "3주뒤 5시"
+        /(차차주|\d+주\s*후|\d+주\s*뒤)\s*(\d{1,2}시)/,
+        // "차차주 오후 5시", "2주후 오전 9시"
+        /(차차주|\d+주\s*후|\d+주\s*뒤)\s*(오전|오후)\s*(\d{1,2}시)/,
+        // "차차주 월요일 5시", "2주후 화요일 3시"
+        /(차차주|\d+주\s*후|\d+주\s*뒤)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)\s*(\d{1,2}시)/,
+        // "차차주 월요일 오후 5시"
+        /(차차주|\d+주\s*후|\d+주\s*뒤)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)\s*(오전|오후)\s*(\d{1,2}시)/,
+        // "차주 5시", "다음주 3시", "내일 5시"
+        /(차주|다음주|이번주|내일|모레)\s*(\d{1,2}시)/,
+        // "차주 오후 5시", "내일 오전 9시"
+        /(차주|다음주|이번주|내일|모레)\s*(오전|오후)\s*(\d{1,2}시)/,
+        // "차주 월요일 5시", "다음주 화요일 3시"
+        /(차주|다음주|이번주)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)\s*(\d{1,2}시)/,
+        // "차주 월요일 오후 5시"
+        /(차주|다음주|이번주)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)\s*(오전|오후)\s*(\d{1,2}시)/,
+        // "12월 25일 5시"
+        /(\d{1,2}월\s*\d{1,2}일)\s*(\d{1,2}시)/,
+        // "12월 25일 오후 5시"
+        /(\d{1,2}월\s*\d{1,2}일)\s*(오전|오후)\s*(\d{1,2}시)/
+    ];
+    
+    // 복합 패턴 먼저 확인
+    for (const pattern of complexTimePatterns) {
+        const match = content.match(pattern);
+        if (match) {
+            const extractedTime = match[0];
+            console.log(`✅ 복합 시간 표현 추출: "${extractedTime}"`);
+            return extractedTime;
+        }
+    }
+    
+    // 2단계: 개별 시간/날짜 패턴
+    const simpleTimePatterns = [
+        /(\d{1,2}시)/,
+        /(오전|오후)\s*\d{1,2}시/,
+        /(내일|모레|다음주|이번주|차주)/,
+        /(월요일|화요일|수요일|목요일|금요일|토요일|일요일)/,
+        /\d{1,2}월\s*\d{1,2}일/,
+        /\d{4}년\s*\d{1,2}월\s*\d{1,2}일/
+    ];
+    
+    for (const pattern of simpleTimePatterns) {
+        const match = content.match(pattern);
+        if (match) {
+            const extractedTime = match[0];
+            console.log(`✅ 단순 시간 표현 추출: "${extractedTime}"`);
+            return extractedTime;
+        }
+    }
+    
+    // 시간 정보가 없으면 전체 내용을 period로 사용
+    console.log(`❌ 시간 정보 없음, 전체 내용 사용: "${content}"`);
+    return content;
+}
+
+/**
+ * 문서 검색 숏컷을 파싱하는 함수
+ * 예: "해커스 강의" -> 일반 문서 검색
+ *     "해커스 강의#키워드" -> 문서 내 키워드 검색
+ */
+function parseDocumentShortcut(content) {
+    console.log(`📄 문서 검색 파싱: "${content}"`);
+    
+    // # 기호로 문서명과 키워드 분리
+    const hashIndex = content.indexOf('#');
+    
+    if (hashIndex !== -1) {
+        // 문서 내 키워드 검색: "해커스 강의#키워드"
+        const searchKeyword = content.substring(0, hashIndex).trim();
+        const inDocumentKeyword = content.substring(hashIndex + 1).trim();
+        
+        if (!searchKeyword || !inDocumentKeyword) {
+            console.log(`❌ 문서명 또는 키워드 없음`);
+            return null;
+        }
+        
+        console.log(`✅ 통합 문서 키워드 검색: "${searchKeyword}" 문서에서 "${inDocumentKeyword}" 검색`);
+        
+        return {
+            category: 'DRIVE',
+            extractedInfo: {
+                searchKeyword: searchKeyword,
+                inDocumentKeyword: inDocumentKeyword
+            }
+        };
+    } else {
+        // 일반 문서 검색: "해커스 강의"
+        if (!content.trim()) {
+            console.log(`❌ 검색할 문서명 없음`);
+            return null;
+        }
+        
+        console.log(`✅ 드라이브 문서 검색: "${content}"`);
+        
+        return {
+            category: 'DRIVE',
+            extractedInfo: {
+                searchKeyword: content.trim()
+            }
+        };
+    }
+}
+
 // 명확한 다른 의도가 있는지 확인하는 함수
 function checkExplicitIntent(userInput) {
     const explicitKeywords = {
@@ -106,6 +298,13 @@ async function classifyUserInput(message, client, actualContent = null) {
 
     const context = client.memory.getUserMemory(userId);
     const recentConversations = client.memory.getRecentConversations(userId);
+
+    // 0단계: 숏컷 명령어 확인 (최우선 처리)
+    const shortcutResult = parseShortcutCommand(userInput);
+    if (shortcutResult) {
+        console.log(`🚀 숏컷 명령어 처리: ${shortcutResult.category}`);
+        return shortcutResult;
+    }
 
     // 1단계: 명확한 다른 의도가 있는지 먼저 확인 (우선순위 높음)
     const explicitIntent = checkExplicitIntent(userInput);

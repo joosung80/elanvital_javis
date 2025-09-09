@@ -1,6 +1,70 @@
 const { authorize, listEvents, addEvent, deleteEvent, updateEvent, searchEvents } = require('../google-calendar');
 const { calculateMatchScore } = require('./similarityUtils');
 const { askGPT, askGPTForJSON } = require('../services/gptService');
+const { parseRelativeDate, formatForGoogleCalendar } = require('./dateUtils');
+
+/**
+ * 숏컷에서 파싱된 정보를 직접 사용하여 일정을 추가합니다.
+ * @param {string} period - "차주 5시", "다음주 월요일 3시" 등
+ * @param {string} content - "원고리뷰", "회의" 등
+ * @returns {Object} 처리 결과
+ */
+async function addScheduleEventDirect(period, content) {
+    console.log(`📅 직접 일정 추가: period="${period}", content="${content}"`);
+    
+    try {
+        // 상대적 날짜 파싱
+        const parsedDate = parseRelativeDate(period);
+        
+        // 제목 추출 (period에서 시간 정보 제거)
+        const title = content.replace(/(차주|다음주|이번주|내일|모레|오늘)\s*(월요일|화요일|수요일|목요일|금요일|토요일|일요일)?\s*(오전|오후)?\s*\d{1,2}시(\d{1,2}분)?\s*/g, '').trim() || content;
+        
+        // Google Calendar 형식으로 변환
+        const calendarEvent = formatForGoogleCalendar(parsedDate, title);
+        
+        console.log(`📅 Google Calendar 이벤트 생성:`, {
+            title: calendarEvent.summary,
+            start: calendarEvent.start,
+            end: calendarEvent.end
+        });
+        
+        // Google Calendar에 이벤트 추가
+        const auth = await authorize();
+        const createdEvent = await addEvent(auth, calendarEvent);
+        
+        if (createdEvent) {
+            const eventDate = parsedDate.date;
+            const eventTime = parsedDate.time;
+            const dateStr = `${eventDate.getMonth() + 1}월 ${eventDate.getDate()}일 (${parsedDate.date.toLocaleDateString('ko-KR', { weekday: 'short' })})`;
+            const timeStr = parsedDate.isAllDay ? '종일' : `${eventTime}`;
+            
+            const successMessage = `✅ **일정이 추가되었습니다!**\n\n` +
+                                 `📅 **날짜**: ${dateStr}\n` +
+                                 `⏰ **시간**: ${timeStr}\n` +
+                                 `📝 **제목**: ${title}`;
+            
+            console.log(`✅ 일정 추가 성공: ${title} (${dateStr} ${timeStr})`);
+            
+            return {
+                success: true,
+                message: successMessage,
+                event: createdEvent
+            };
+        } else {
+            throw new Error('Google Calendar 이벤트 생성 실패');
+        }
+        
+    } catch (error) {
+        console.error(`❌ 직접 일정 추가 실패:`, error);
+        
+        return {
+            success: false,
+            message: `❌ **일정 추가에 실패했습니다.**\n\n` +
+                    `오류: ${error.message}\n\n` +
+                    `💡 다시 시도하거나 다른 형식으로 입력해주세요.`
+        };
+    }
+}
 
 /**
  * 자연어 텍스트를 Google Calendar 이벤트 데이터로 파싱합니다.
@@ -956,10 +1020,28 @@ async function executeScheduleDelete(sessionId, eventIndex) {
         
         console.log(`[DELETE DEBUG] ✅ 일정 삭제 완료: ${displayTitle} (${dateStr} ${timeStr})`);
         
-        return {
-            success: true,
-            message: `✅ **일정이 삭제되었습니다!**\n\n🗑️ **${dateStr} ${timeStr}** - ${displayTitle}\n*(${(selectedItem.similarity * 100).toFixed(1)}% 유사도로 매칭)*`
-        };
+        // 삭제 후 같은 기간의 일정 목록을 다시 조회
+        console.log(`[DELETE DEBUG] 📋 삭제 후 목록 재조회 중...`);
+        const updatedSchedule = await getInteractiveSchedule(sessionData.period, sessionData.userId);
+        
+        const deleteMessage = `✅ **일정이 삭제되었습니다!**\n\n🗑️ **${dateStr} ${timeStr}** - ${displayTitle}\n*(${(selectedItem.similarity * 100).toFixed(1)}% 유사도로 매칭)*`;
+        
+        if (updatedSchedule.success && updatedSchedule.events && updatedSchedule.events.length > 0) {
+            // 삭제 후에도 일정이 남아있는 경우
+            return {
+                success: true,
+                message: deleteMessage + '\n\n' + updatedSchedule.message,
+                components: updatedSchedule.components,
+                showUpdatedList: true
+            };
+        } else {
+            // 삭제 후 일정이 없는 경우
+            return {
+                success: true,
+                message: deleteMessage + '\n\n📅 **현재 해당 기간에 다른 일정이 없습니다.**',
+                showUpdatedList: false
+            };
+        }
         
     } catch (error) {
         console.error(`[DELETE DEBUG] ❌ 일정 삭제 실행 오류:`, error);
@@ -1532,8 +1614,15 @@ async function handleScheduleRequest(message, classification, userInput) {
                     return result.message;
                 }
             case 'add':
-                result = await addScheduleEvent(textToProcess);
-                 await message.reply(result.message);
+                // 숏컷에서 파싱된 정보가 있으면 직접 사용
+                if (extractedInfo.period && extractedInfo.content) {
+                    console.log(`🚀 숏컷 데이터 직접 처리: period="${extractedInfo.period}", content="${extractedInfo.content}"`);
+                    result = await addScheduleEventDirect(extractedInfo.period, extractedInfo.content);
+                } else {
+                    console.log(`🔄 자연어 처리 모드`);
+                    result = await addScheduleEvent(textToProcess);
+                }
+                await message.reply(result.message);
                 return result.message;
             case 'delete':
                 result = await deleteScheduleEvent(textToProcess, message.author.id);
@@ -1560,6 +1649,7 @@ async function handleScheduleRequest(message, classification, userInput) {
 
 
 module.exports = {
+    addScheduleEventDirect,
     parseEventWithGemini,
     getTimeRangeFromPeriod,
     getScheduleSummary,

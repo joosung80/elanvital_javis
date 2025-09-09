@@ -51,7 +51,9 @@ async function handleMessageCreate(message, client) {
                 botResponseContent = "메모리 기능은 현재 구현 중입니다.";
                 break;
             case 'IMAGE':
-                await handleImageRequest(message, actualContent);
+                // 숏컷으로 전달된 프롬프트가 있으면 사용, 없으면 actualContent 사용
+                const imagePrompt = classification.extractedInfo?.prompt || actualContent;
+                await handleImageRequest(message, imagePrompt);
                 break;
             case 'GENERAL':
             default:
