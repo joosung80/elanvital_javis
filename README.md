@@ -49,14 +49,45 @@ cp .env_example .env
 2. "Create API Key" 클릭
 3. 생성된 키를 `GEMINI_API_KEY`에 설정
 
-### Google 서비스 인증 (선택사항)
+### Google 서비스 인증 (필수 - Google Drive, Calendar, Tasks 기능 사용시)
 
-Google Tasks, Google Calendar, Google Drive 기능을 사용하려면 추가 설정이 필요합니다:
+⚠️ **중요**: Google Drive 검색, 일정 관리, 작업 관리 기능을 사용하려면 반드시 `credentials.json` 파일이 필요합니다!
 
-1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성
-2. Google Tasks API, Google Calendar API, Google Drive API 활성화
-3. OAuth 2.0 클라이언트 ID 생성
-4. `credentials.json` 파일을 프로젝트 루트에 저장
+#### 1. Google Cloud Console 설정
+1. [Google Cloud Console](https://console.cloud.google.com/)에 접속하여 새 프로젝트 생성
+2. **API 및 서비스 > 라이브러리**에서 다음 API들을 활성화:
+   - Google Drive API
+   - Google Calendar API  
+   - Google Tasks API
+   - Google Docs API
+   - Google Sheets API
+
+#### 2. OAuth 2.0 클라이언트 ID 생성
+1. **API 및 서비스 > 사용자 인증 정보**로 이동
+2. **+ 사용자 인증 정보 만들기** → **OAuth 클라이언트 ID** 선택
+3. 애플리케이션 유형: **데스크톱 애플리케이션** 선택
+4. 이름 입력 후 **만들기** 클릭
+5. 생성된 클라이언트 ID의 **JSON 다운로드** 버튼 클릭
+
+#### 3. credentials.json 파일 배치
+```bash
+# 다운로드한 JSON 파일을 프로젝트 루트에 credentials.json으로 저장
+cp ~/Downloads/client_secret_xxxxx.json ./credentials.json
+```
+
+**파일 구조 확인:**
+```
+baco/
+├── credentials.json  ← 이 파일이 반드시 있어야 함!
+├── .env
+├── package.json
+└── src/
+```
+
+❌ **credentials.json 파일이 없으면 발생하는 오류:**
+- Google Drive 검색 실패
+- 일정 관리 기능 오류  
+- 작업 관리 기능 오류
 
 ## 설치 및 실행
 
@@ -71,15 +102,29 @@ cp .env_example .env
 # .env 파일을 편집하여 각 키 값 설정
 ```
 
-### 3. Discord 슬래시 커맨드 등록
+### 3. Google 인증 파일 확인 ⚠️
+```bash
+# credentials.json 파일이 프로젝트 루트에 있는지 확인
+ls -la credentials.json
+
+# 파일이 없다면 위의 "Google 서비스 인증" 섹션을 참고하여 설정
+```
+
+### 4. Discord 슬래시 커맨드 등록
 ```bash
 node src/deploy-commands.js
 ```
 
-### 4. 봇 실행
+### 5. 봇 실행
 ```bash
 node src/index.js
 ```
+
+### 🚨 실행 전 체크리스트
+- [ ] `.env` 파일에 모든 필수 환경 변수 설정 완료
+- [ ] `credentials.json` 파일이 프로젝트 루트에 존재
+- [ ] Discord 봇이 서버에 초대되어 있음
+- [ ] 필요한 Google API들이 활성화되어 있음
 
 ## 사용 가능한 커맨드
 
