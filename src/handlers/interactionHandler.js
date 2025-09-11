@@ -37,6 +37,8 @@ module.exports = {
         if (interaction.isButton()) {
             const customId = interaction.customId;
             console.log(`[INTERACTION] 🔘 버튼 클릭: ${customId}`);
+            console.log(`[INTERACTION] 👤 사용자: ${interaction.user.id} (${interaction.user.username})`);
+            console.log(`[INTERACTION] 📍 채널: ${interaction.channel.id}`);
 
             try {
                 if (customId.startsWith('complete_task_')) {
@@ -160,6 +162,29 @@ module.exports = {
                     } else {
                         await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
                     }
+                } else if (customId.startsWith('edit_')) {
+                    // edit_sessionId_eventIndex 형태 파싱
+                    const parts = customId.split('_');
+                    if (parts.length >= 3) {
+                        const sessionId = parts.slice(1, -1).join('_'); // sessionId 부분
+                        const eventIndex = parseInt(parts[parts.length - 1]); // 마지막 부분이 eventIndex
+                        
+                        console.log(`[INTERACTION] ✏️ 일정 수정 요청 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
+                        
+                        const { createEditModal } = require('../utils/scheduleHandler');
+                        const modalResult = createEditModal(sessionId, eventIndex);
+                        
+                        if (modalResult.success) {
+                            console.log(`[INTERACTION] 📝 수정 모달 표시 중...`);
+                            await interaction.showModal(modalResult.modal);
+                        } else {
+                            console.log(`[INTERACTION] ❌ 모달 생성 실패: ${modalResult.message}`);
+                            await interaction.reply({ content: modalResult.message, ephemeral: true });
+                        }
+                    } else {
+                        console.log(`[INTERACTION] ❌ 잘못된 edit 버튼 형식: ${customId}`);
+                        await interaction.reply({ content: '❌ 잘못된 버튼 형식입니다.', ephemeral: true });
+                    }
                 } else if (customId.startsWith('read_drive_')) {
                     await handleDriveReadButton(interaction, client.driveSearchSessions);
                 } else if (customId === 'summarize_document') {
@@ -214,6 +239,43 @@ module.exports = {
                 }
 
                 await handleSearchInDocument(interaction, lastDocument, keyword);
+            } else if (interaction.customId.startsWith('edit_modal_')) {
+                // edit_modal_sessionId_eventIndex 형태 파싱
+                const parts = interaction.customId.split('_');
+                if (parts.length >= 4) {
+                    const sessionId = parts.slice(2, -1).join('_'); // sessionId 부분
+                    const eventIndex = parseInt(parts[parts.length - 1]); // 마지막 부분이 eventIndex
+                    
+                    console.log(`[INTERACTION] 💾 일정 수정 모달 제출 - 세션: ${sessionId}, 인덱스: ${eventIndex}`);
+                    
+                    // 모달에서 입력된 데이터 추출
+                    const formData = {
+                        title: interaction.fields.getTextInputValue('title'),
+                        date: interaction.fields.getTextInputValue('date'),
+                        start_time: interaction.fields.getTextInputValue('start_time'),
+                        end_time: interaction.fields.getTextInputValue('end_time'),
+                        description: interaction.fields.getTextInputValue('description')
+                    };
+                    
+                    console.log(`[INTERACTION] 📝 입력된 데이터:`, formData);
+                    
+                    // 응답 지연 처리
+                    await interaction.deferReply({ ephemeral: true });
+                    
+                    const { executeEventUpdate } = require('../utils/scheduleHandler');
+                    const result = await executeEventUpdate(sessionId, eventIndex, formData);
+                    
+                    if (result.success) {
+                        console.log(`[INTERACTION] ✅ 일정 수정 완료`);
+                        await interaction.editReply(result.message);
+                    } else {
+                        console.log(`[INTERACTION] ❌ 일정 수정 실패: ${result.message}`);
+                        await interaction.editReply(result.message);
+                    }
+                } else {
+                    console.log(`[INTERACTION] ❌ 잘못된 모달 형식: ${interaction.customId}`);
+                    await interaction.reply({ content: '❌ 잘못된 모달 형식입니다.', ephemeral: true });
+                }
             }
         }
     },

@@ -33,6 +33,11 @@ module.exports = {
                     inline: false
                 },
                 {
+                    name: `🎥 유튜브 동영상 스크립트 정리 (${MODEL_DESCRIPTIONS.GEMINI_MAIN})`,
+                    value: '```\n"https://www.youtube.com/watch?v=abc123"\n"유튜브 링크 https://youtu.be/abc123 요약해주세요"\n"유튜브:https://www.youtube.com/watch?v=abc123"\n```\n• 전체 스크립트 자동 전사\n• 타임스탬프별 내용 정리\n• 시각적 설명 포함\n• 전체 요약 제공\n• 긴 내용은 파일로 첨부',
+                    inline: false
+                },
+                {
                     name: '🧠 메모리 & 컨텍스트 관리',
                     value: '```\n"이거 기억해줘"\n"아까 뭐라고 했지?"\n"메모리 정리해줘"\n"새 대화"\n```\n• 최대 5개 대화 기록 유지\n• 업로드된 이미지/문서 기억\n• 자동 대화 압축\n• 컨텍스트 기반 답변',
                     inline: false
@@ -59,3 +64,55 @@ module.exports = {
         await interaction.reply({ embeds: [embed] });
     },
 };
+
+async function handleHelpRequest() {
+    return `🤖 **Elanvital Agent 기능 안내**
+
+안녕하세요! 저는 다양한 업무를 도와드리는 AI 어시스턴트입니다. 아래 기능들을 자연어로 편리하게 사용하실 수 있습니다:
+
+📅 **일정 관리 (Google Calendar 연동)**
+• "내일 오후 3시에 팀 회의 추가해줘"
+• "오늘 일정 알려줘"
+• "다음주 스케줄 보여줘"
+• "내일 회의 취소해줘"
+
+✅ **할일 관리 (Google Tasks 연동)**
+• "할일 목록 보여줘"
+• "장보기 할일 추가해줘"
+• "운동하기 완료 처리해줘"
+
+🔍 **스마트 드라이브 검색 (Google Drive 연동)**
+• "드라이브에서 마케팅 기획안 찾아줘"
+• "패스워드 문서 읽어줘"
+• "회의록 요약해줘"
+
+🎨 **이미지 생성 & 편집 (${MODEL_DESCRIPTIONS.GEMINI_MAIN})**
+• "고양이 그림 그려줘"
+• "태양계 인포그래픽 만들어줘"
+• [이미지 업로드] "이걸 수정해줘"
+
+🎥 **유튜브 동영상 스크립트 정리 (${MODEL_DESCRIPTIONS.GEMINI_MAIN})**
+• "https://www.youtube.com/watch?v=abc123"
+• "유튜브 링크 https://youtu.be/abc123 요약해주세요"
+• "유튜브:https://www.youtube.com/watch?v=abc123"
+
+🧠 **메모리 & 컨텍스트 관리**
+• "이거 기억해줘"
+• "아까 뭐라고 했지?"
+• "메모리 정리해줘"
+
+🎤 **음성 인식 (OpenAI Whisper)**
+• Discord 음성 메시지 자동 변환
+
+💬 **일반 질문 & 대화**
+• ${MODEL_DESCRIPTIONS.GPT_MAIN} 기반 지능형 답변
+
+🚀 **사용 팁**
+• 자연어로 편하게 말씀하세요!
+• 음성 메시지로도 모든 기능 사용 가능
+• 이전 대화나 문서를 기억하므로 "그거", "아까 그 문서" 등 참조 가능
+
+💡 궁금한 점이 있으시면 언제든 자연어로 물어보세요!`;
+}
+
+module.exports.handleHelpRequest = handleHelpRequest;

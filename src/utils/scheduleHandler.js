@@ -93,6 +93,31 @@ async function parseEventWithGemini(text) {
     const koreanDate = now.toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });
     const koreanWeekday = now.toLocaleDateString('ko-KR', { weekday: 'long', timeZone: 'Asia/Seoul' });
     
+    // 현재 시간 정보 추출 및 30분 단위 반올림
+    const koreaTimeObj = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+    const currentHour = koreaTimeObj.getHours();
+    const currentMinute = koreaTimeObj.getMinutes();
+    
+    // 30분 단위 반올림 함수
+    function roundToNearestHalfHour(hour, minute) {
+        let roundedHour = hour;
+        let roundedMinute;
+        
+        if (minute <= 15) {
+            roundedMinute = 0;
+        } else if (minute <= 45) {
+            roundedMinute = 30;
+        } else {
+            roundedMinute = 0;
+            roundedHour = (hour + 1) % 24;
+        }
+        
+        return { hour: roundedHour, minute: roundedMinute };
+    }
+    
+    const rounded = roundToNearestHalfHour(currentHour, currentMinute);
+    const currentTimeStr = `${rounded.hour.toString().padStart(2, '0')}:${rounded.minute.toString().padStart(2, '0')}`;
+    
     const prompt = `
 당신은 한국어 자연어를 정확한 일정 데이터로 변환하는 전문가입니다.
 
@@ -103,6 +128,7 @@ async function parseEventWithGemini(text) {
 - 현재 요일: ${koreanWeekday}
 - 현재 년도: ${now.getFullYear()}년
 - 현재 월: ${now.getMonth() + 1}월
+- 현재 정확한 시각: ${currentTimeStr} (${rounded.hour}시 ${rounded.minute}분) - 30분 단위 반올림 적용
 
 **자연어 시간 표현 해석 규칙:**
 - "오늘" = ${koreanDate}
@@ -112,6 +138,7 @@ async function parseEventWithGemini(text) {
 - "다음주" = 다음 주 (월요일~일요일)
 
 **시간 표현 인식:**
+- "지금 시간", "지금" = 현재 정확한 시각 ${currentTimeStr} 사용
 - "시" (단독) = 오후 1시 (13:00)로 해석 (점심시간 이후)
 - "1시", "2시", "3시" 등 = 오후 시간으로 해석 (13:00, 14:00, 15:00)
 - "6시" = 오후 6시 (18:00)로 해석 (일반적인 저녁 시간)
@@ -123,6 +150,16 @@ async function parseEventWithGemini(text) {
 - "10시반", "10:30" = 10:30 또는 22:30
 - "새벽 2시" = 02:00
 - "밤 11시" = 23:00
+
+**중요한 "지금 시간" 처리 (30분 단위 반올림):**
+- "다음주 지금 시간" = 다음주 같은 요일 ${currentTimeStr} (30분 단위 반올림)
+- "내일 지금 시간" = 내일 ${currentTimeStr} (30분 단위 반올림)
+- "지금 시간에 회의" = 오늘 ${currentTimeStr}에 회의 (30분 단위 반올림)
+
+**30분 단위 반올림 규칙:**
+- 0-15분 → 정각 (00분)
+- 16-45분 → 30분
+- 46-59분 → 다음 시간 정각 (00분)
 
 **지속시간 표현 인식 및 자동 계산:**
 - "9시부터 3시간동안" → 시작: 09:00, 종료: 12:00 (3시간 추가)
@@ -184,6 +221,8 @@ async function parseEventWithGemini(text) {
 변환 예시:
 
 **시간 지정 일정:**
+- "다음주 지금 시간에 9차 멘토링 확인 일정" → 시작: 다음주 같은 요일 ${currentTimeStr}, 종료: 다음주 같은 요일 ${rounded.hour + 1 < 24 ? (rounded.hour + 1).toString().padStart(2, '0') : '00'}:${rounded.minute.toString().padStart(2, '0')} (30분 단위 반올림)
+- "내일 지금 시간에 회의" → 시작: 내일 ${currentTimeStr}, 종료: 내일 ${rounded.hour + 1 < 24 ? (rounded.hour + 1).toString().padStart(2, '0') : '00'}:${rounded.minute.toString().padStart(2, '0')} (30분 단위 반올림)
 - "다음주 시 메일정리" → 시작: 다음주 월요일 13:00, 종료: 다음주 월요일 14:00
 - "내일 6시에 영준이와 저녁식사" → 시작: 내일 18:00, 종료: 내일 19:00
 - "오늘 오후 3시 팀 회의" → 시작: 오늘 15:00, 종료: 오늘 16:00
@@ -383,14 +422,23 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
         const sessionId = `${userId || 'unknown'}_${Date.now()}`;
         
         // 일정 세션 저장 (수정/삭제용)
-        saveScheduleSession(sessionId, {
+        const sessionData = {
             events: events,
             period: period,
             description: timeRange.description,
             userId: userId
-        });
+        };
+        
+        saveScheduleSession(sessionId, sessionData);
         
         console.log(`💾 일정 세션 저장: ${events.length}개`);
+        console.log(`[SESSION DEBUG] 📋 저장된 세션 정보:`, {
+            sessionId: sessionId,
+            userId: userId,
+            period: period,
+            eventsCount: events.length,
+            description: timeRange.description
+        });
         
         // Discord 버튼 UI 생성 - 컴팩트한 투명 스타일 버튼
         const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -402,16 +450,21 @@ async function getInteractiveSchedule(period = '오늘', userId = null) {
         
         events.forEach((event, index) => {
             // 수정 버튼 - 번호 + 이모티콘
+            const editButtonId = `edit_${sessionId}_${index}`;
             const editButton = new ButtonBuilder()
-                .setCustomId(`edit_${sessionId}_${index}`)
+                .setCustomId(editButtonId)
                 .setLabel(`${index + 1}.✏️`)
                 .setStyle(ButtonStyle.Secondary);
             
             // 삭제 버튼 - 번호 + 이모티콘
+            const deleteButtonId = `quick_delete_${sessionId}_${index}`;
             const deleteButton = new ButtonBuilder()
-                .setCustomId(`quick_delete_${sessionId}_${index}`)
+                .setCustomId(deleteButtonId)
                 .setLabel(`${index + 1}.🗑️`)
                 .setStyle(ButtonStyle.Secondary);
+            
+            console.log(`[BUTTON DEBUG] 🔘 버튼 생성 - 이벤트 ${index + 1}: 수정(${editButtonId}), 삭제(${deleteButtonId})`);
+            console.log(`[BUTTON DEBUG] 📝 이벤트 정보: "${event.summary}" (ID: ${event.id})`);
             
             allButtons.push(editButton, deleteButton);
         });
@@ -1200,11 +1253,20 @@ function createEditModal(sessionId, eventIndex) {
     
     const sessionData = getScheduleSession(sessionId);
     if (!sessionData) {
+        console.log(`[EDIT DEBUG] ❌ 세션 데이터 없음 - 세션: ${sessionId}`);
         return {
             success: false,
             message: '⏰ 세션이 만료되었습니다. 다시 시도해주세요.'
         };
     }
+    
+    console.log(`[EDIT DEBUG] ✅ 세션 데이터 찾음 - 이벤트 수: ${sessionData.events ? sessionData.events.length : 0}`);
+    console.log(`[EDIT DEBUG] 📋 세션 정보:`, {
+        userId: sessionData.userId,
+        period: sessionData.period,
+        eventsCount: sessionData.events ? sessionData.events.length : 0,
+        timestamp: sessionData.timestamp
+    });
     
     if (eventIndex < 0 || eventIndex >= sessionData.events.length) {
         return {

@@ -4,6 +4,7 @@ const { handleImageRequest } = require('../utils/imageHandler');
 const { handleDriveSearchRequest } = require('../utils/driveHandler');
 const { handleScheduleRequest } = require('../utils/scheduleHandler');
 const { handleTaskRequest } = require('../utils/taskHandler');
+const { handleYouTubeRequest } = require('../utils/youtubeHandler');
 // const { handleMemoryRequest } = require('../commands/memory'); // TODO: 구현 필요
 const { handleGeneralRequest } = require('../utils/generalHandler');
 const { transcribeAudio } = require('../utils/voiceHandler');
@@ -54,6 +55,9 @@ async function handleMessageCreate(message, client) {
                 // 숏컷으로 전달된 프롬프트가 있으면 사용, 없으면 actualContent 사용
                 const imagePrompt = classification.extractedInfo?.prompt || actualContent;
                 await handleImageRequest(message, imagePrompt);
+                break;
+            case 'YOUTUBE':
+                await handleYouTubeRequest(message, classification);
                 break;
             case 'GENERAL':
             default:

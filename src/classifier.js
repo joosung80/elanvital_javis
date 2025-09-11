@@ -576,10 +576,55 @@ function checkExplicitIntent(userInput) {
         DRIVE: ['드라이브', '독스', '시트', '문서', '파일', '자료', '검색', '찾아', '읽어', '요약'],
         TASK: ['할일', '할 일', '투두', 'todo', '작업', '완료', '체크'],
         HELP: ['도움', '도와', '명령어', '사용법', '어떻게', '뭐 할 수', '기능'],
-        MEMORY: ['기억', '저장', '메모리', '아까', '전에', '이전에']
+        MEMORY: ['기억', '저장', '메모리', '아까', '전에', '이전에'],
+        YOUTUBE: ['유튜브', 'youtube', '동영상', '비디오', '영상']
     };
 
     console.log(`🔍 명시적 의도 확인: "${userInput}"`);
+    
+    // 유튜브 URL 패턴 확인 (최우선)
+    const youtubeUrlPattern = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([a-zA-Z0-9_-]{11})/;
+    const youtubeMatch = userInput.match(youtubeUrlPattern);
+    
+    if (youtubeMatch) {
+        console.log(`🎥 유튜브 URL 감지: ${youtubeMatch[0]}`);
+        return {
+            category: 'YOUTUBE',
+            extractedInfo: {
+                youtubeUrl: youtubeMatch[0],
+                videoId: youtubeMatch[1],
+                action: 'transcribe'
+            }
+        };
+    }
+    
+    // 유튜브 관련 텍스트 패턴 확인
+    const youtubeTextPatterns = [
+        /유튜브\s*링크\s*(.+?)\s*요약/i,
+        /유튜브\s*:\s*(.+)/i,
+        /youtube\s*:\s*(.+)/i,
+        /유튜브\s*(.+?)\s*스크립트/i,
+        /유튜브\s*(.+?)\s*정리/i
+    ];
+    
+    for (const pattern of youtubeTextPatterns) {
+        const match = userInput.match(pattern);
+        if (match) {
+            const extractedUrl = match[1].trim();
+            const urlMatch = extractedUrl.match(youtubeUrlPattern);
+            if (urlMatch) {
+                console.log(`🎥 유튜브 텍스트 패턴 감지: ${extractedUrl}`);
+                return {
+                    category: 'YOUTUBE',
+                    extractedInfo: {
+                        youtubeUrl: urlMatch[0],
+                        videoId: urlMatch[1],
+                        action: 'transcribe'
+                    }
+                };
+            }
+        }
+    }
     
     for (const [category, keywords] of Object.entries(explicitKeywords)) {
         const matchedKeywords = keywords.filter(keyword => userInput.includes(keyword));
@@ -676,14 +721,30 @@ async function classifyUserInput(message, client, actualContent = null) {
     const context = client.memory.getUserMemory(userId);
     const recentConversations = client.memory.getRecentConversations(userId);
 
-    // 0단계: 숏컷 명령어 확인 (최우선 처리)
+    // 0단계: 유튜브 URL 확인 (최우선 처리)
+    const youtubeUrlPattern = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([a-zA-Z0-9_-]{11})/;
+    const youtubeMatch = userInput.match(youtubeUrlPattern);
+    
+    if (youtubeMatch) {
+        console.log(`🎥 유튜브 URL 감지 (최우선): ${youtubeMatch[0]}`);
+        return {
+            category: 'YOUTUBE',
+            extractedInfo: {
+                youtubeUrl: youtubeMatch[0],
+                videoId: youtubeMatch[1],
+                action: 'transcribe'
+            }
+        };
+    }
+
+    // 1단계: 숏컷 명령어 확인
     const shortcutResult = await parseShortcutCommand(userInput);
     if (shortcutResult) {
         console.log(`🚀 숏컷 명령어 처리: ${shortcutResult.category}`);
         return shortcutResult;
     }
 
-    // 1단계: 명확한 다른 의도가 있는지 먼저 확인 (우선순위 높음)
+    // 2단계: 명확한 다른 의도가 있는지 먼저 확인 (우선순위 높음)
     const explicitIntent = checkExplicitIntent(userInput);
     
     if (explicitIntent) {
@@ -693,7 +754,7 @@ async function classifyUserInput(message, client, actualContent = null) {
         }
         return explicitIntent;
     } else {
-        // 2단계: 이미지가 첨부된 경우 IMAGE 카테고리로 분류
+        // 3단계: 이미지가 첨부된 경우 IMAGE 카테고리로 분류
         const hasImageAttachment = message.attachments.some(attachment => 
             attachment.contentType && attachment.contentType.startsWith('image/')
         );
@@ -703,7 +764,7 @@ async function classifyUserInput(message, client, actualContent = null) {
             return { category: 'IMAGE', extractedInfo: {} };
         }
 
-        // 3단계: 메모리에 이미지가 있고 이미지 관련 키워드가 포함된 경우 IMAGE 카테고리로 분류
+        // 4단계: 메모리에 이미지가 있고 이미지 관련 키워드가 포함된 경우 IMAGE 카테고리로 분류
         const hasImageInMemory = context.lastImageUrl;
         const imageKeywords = [
             '그려', '그림', '이미지', '사진', '편집', '수정', '바꿔', '변경', '배경', '색깔', '스타일',
@@ -748,6 +809,7 @@ ${formattedConversations}
     "DRIVE": "User is asking to search, read, or summarize documents in Google Drive. This can also be a combined request to find a document AND search for a keyword inside it. Keywords: '드라이브', '독스', '시트', '문서', '파일', '자료'. MUST extract 'searchKeyword'. If the user wants to search for a keyword inside the document, ALSO extract 'inDocumentKeyword'.",
     "MEMORY": "User is asking the bot to remember or recall something. (e.g., '이거 기억해', '아까 뭐라고 했지?').",
     "TASK": "User is asking to manage a TO-DO LIST item. These are tasks to be completed, NOT time-bound events. MUST extract 'taskType' ('query', 'add', 'complete') and 'content' (for 'add' and 'complete'). Examples: '보고서 작성 할일 추가', '회의 준비 할일 완료', '할일 목록 보여줘'. DO NOT extract 'period' for tasks.",
+    "YOUTUBE": "User is asking to transcribe, summarize, or analyze a YouTube video. This includes direct YouTube URLs or requests to process YouTube content. MUST extract 'youtubeUrl' and 'action' (usually 'transcribe'). Examples: 'https://www.youtube.com/watch?v=abc123', '유튜브 링크 https://youtu.be/abc123 요약해주세요', '유튜브:https://www.youtube.com/watch?v=abc123'.",
     "GENERAL": "A general conversation or a topic that doesn't fit into other categories."
 }
 
@@ -766,7 +828,10 @@ ${formattedConversations}
     "content": "...", // For SCHEDULE (add/update) and TASK (add/complete)
     "searchKeyword": "...", // Only for DRIVE
     "inDocumentKeyword": "...", // Only for DRIVE
-    "taskType": "..." // Only for TASK
+    "taskType": "...", // Only for TASK
+    "youtubeUrl": "...", // Only for YOUTUBE
+    "videoId": "...", // Only for YOUTUBE
+    "action": "..." // Only for YOUTUBE
   }
 }
 

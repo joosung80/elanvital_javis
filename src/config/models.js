@@ -54,7 +54,13 @@ const FEATURE_MODELS = {
     IMAGE_PROMPT_ENHANCEMENT: GPT_MODELS.FAST,
     
     // 이미지 생성/편집
-    IMAGE_GENERATION: GEMINI_MODELS.IMAGE
+    IMAGE_GENERATION: GEMINI_MODELS.IMAGE,
+    
+    // 유튜브 폴백 처리 (빠른 처리)
+    YOUTUBE_FALLBACK: GPT_MODELS.FAST,
+    
+    // 숏컷 파싱 (빠른 처리)
+    SHORTCUT_PARSING: GPT_MODELS.FAST
 };
 
 // 모델 정보 조회 함수들

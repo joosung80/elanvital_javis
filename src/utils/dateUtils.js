@@ -4,6 +4,33 @@
  */
 
 /**
+ * 시간을 30분 단위로 반올림합니다.
+ * @param {number} hour - 시간 (0-23)
+ * @param {number} minute - 분 (0-59)
+ * @returns {Object} { hour: number, minute: number }
+ */
+function roundToNearestHalfHour(hour, minute) {
+    let roundedHour = hour;
+    let roundedMinute;
+    
+    if (minute <= 15) {
+        // 0-15분 → 정각 (00분)
+        roundedMinute = 0;
+    } else if (minute <= 45) {
+        // 16-45분 → 30분
+        roundedMinute = 30;
+    } else {
+        // 46-59분 → 다음 시간 정각 (00분)
+        roundedMinute = 0;
+        roundedHour = (hour + 1) % 24;
+    }
+    
+    console.log(`⏰ 시간 반올림: ${hour}:${minute.toString().padStart(2, '0')} → ${roundedHour}:${roundedMinute.toString().padStart(2, '0')}`);
+    
+    return { hour: roundedHour, minute: roundedMinute };
+}
+
+/**
  * 상대적 날짜 표현을 정확한 날짜로 변환
  * @param {string} period - "차주 5시", "다음주 월요일 3시" 등
  * @returns {Object} { date: Date, time: string, isAllDay: boolean }
@@ -49,9 +76,19 @@ function parseRelativeDate(period) {
         timeString = `${finalHour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
         console.log(`⏰ 추출된 시간: ${hour}시${minute > 0 ? minute + '분' : ''} → ${timeString} (${meridiem || '자동판단'})`);
     } else if (singleTimeMatch) {
-        // 단독 "시" 처리 - 오후 1시(13:00)로 기본 설정
-        timeString = '13:00';
-        console.log(`⏰ 단독 "시" 감지 → 13:00 (오후 1시)로 설정`);
+        // 단독 "시" 처리 - "지금 시간" 표현인지 확인
+        if (period.includes('지금')) {
+            // 현재 시간을 30분 단위로 반올림
+            const currentHour = koreaTime.getHours();
+            const currentMinute = koreaTime.getMinutes();
+            const rounded = roundToNearestHalfHour(currentHour, currentMinute);
+            timeString = `${rounded.hour.toString().padStart(2, '0')}:${rounded.minute.toString().padStart(2, '0')}`;
+            console.log(`⏰ "지금 시간" 감지 → ${timeString} (30분 단위 반올림 적용)`);
+        } else {
+            // 단독 "시" - 오후 1시(13:00)로 기본 설정
+            timeString = '13:00';
+            console.log(`⏰ 단독 "시" 감지 → 13:00 (오후 1시)로 설정`);
+        }
     } else {
         isAllDay = true;
         timeString = '09:00'; // 기본 시간 설정 (종일 일정이지만 시간 필드는 유지)
@@ -296,5 +333,6 @@ module.exports = {
     formatForGoogleCalendar,
     getWeekdayNumber,
     getKoreanWeekday,
-    testDateParsing
+    testDateParsing,
+    roundToNearestHalfHour
 };
