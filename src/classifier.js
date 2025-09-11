@@ -69,6 +69,7 @@ async function parseShortcutWithLLM(userInput) {
 - "일정#완료#차주 화요일 오후 3시 30분 클라이언트 미팅" → category: 일정, action: complete, time: 차주 화요일 오후 3시 30분, content: 클라이언트 미팅
 - "할일:중요:프로젝트 마무리:완료" → category: 할일, action: complete, content: 프로젝트 마무리, priority: 중요
 - "일정:차주:추가:팀 회의:오후 2시" → category: 일정, action: add, time: 차주 오후 2시, content: 팀 회의
+- "드라이브#패스워드#검색" → category: 문서, action: search, content: 패스워드, searchKeyword: 패스워드, additionalInfo: 검색
 
 **Input to Parse:** "${userInput}"
 
@@ -238,14 +239,39 @@ function convertNewLLMResult(llmResult, originalInput) {
             };
             
         case '문서':
-            return {
-                category: 'DOCUMENT',
-                extractedInfo: {
-                    documentType: 'search',
-                    content: content || '',
-                    searchKeyword: searchKeyword || content || '',
-                    additionalInfo: additionalInfo || null
+            // "드라이브#패스워드#검색" 형태의 경우 패스워드가 searchKeyword, 검색이 inDocumentKeyword
+            let finalSearchKeyword = searchKeyword || content || '';
+            let inDocumentKeyword = null;
+            
+            console.log(`🔍 문서 카테고리 변환 - originalInput: "${originalInput}"`);
+            console.log(`🔍 LLM 결과 - content: "${content}", searchKeyword: "${searchKeyword}", additionalInfo: "${additionalInfo}"`);
+            
+            // 추가 정보에서 검색 키워드 추출
+            if (additionalInfo && (additionalInfo.includes('검색') || additionalInfo.includes('찾기'))) {
+                // "패스워드 검색" 형태에서 "패스워드"를 searchKeyword로, "검색"을 inDocumentKeyword로 처리
+                const parts = originalInput.split(/[:#]/).map(p => p.trim()).filter(p => p);
+                console.log(`🔍 파싱된 부분들: [${parts.join(', ')}]`);
+                if (parts.length >= 3) {
+                    // "드라이브#패스워드#검색" -> searchKeyword: "패스워드", inDocumentKeyword: "검색"
+                    finalSearchKeyword = parts[1]; // 패스워드
+                    inDocumentKeyword = parts[2]; // 검색
+                    console.log(`✅ 통합 검색 설정: searchKeyword="${finalSearchKeyword}", inDocumentKeyword="${inDocumentKeyword}"`);
                 }
+            }
+            
+            const extractedInfo = {
+                searchKeyword: finalSearchKeyword,
+                targetType: 'all'
+            };
+            
+            // 문서 내 키워드 검색이 있는 경우 추가
+            if (inDocumentKeyword) {
+                extractedInfo.inDocumentKeyword = inDocumentKeyword;
+            }
+            
+            return {
+                category: 'DRIVE',
+                extractedInfo: extractedInfo
             };
             
         default:
