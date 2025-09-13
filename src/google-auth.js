@@ -8,10 +8,10 @@ const {google} = require('googleapis');
 const SCOPES = [
     'https://www.googleapis.com/auth/tasks',
     'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/documents.readonly',
-    'https://www.googleapis.com/auth/spreadsheets.readonly',
-    'https://www.googleapis.com/auth/drive.readonly',
-    'https://www.googleapis.com/auth/presentations.readonly'
+    'https://www.googleapis.com/auth/documents', // 읽기/쓰기 권한으로 변경
+    'https://www.googleapis.com/auth/spreadsheets', // 읽기/쓰기 권한으로 변경
+    'https://www.googleapis.com/auth/drive', // 읽기/쓰기 권한으로 변경
+    'https://www.googleapis.com/auth/presentations' // 읽기/쓰기 권한으로 변경
 ];
 
 const TOKEN_PATH = path.join(process.cwd(), 'token.json');

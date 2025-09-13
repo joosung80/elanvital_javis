@@ -624,13 +624,19 @@ function checkExplicitIntent(userInput) {
         };
     }
     
-    // 유튜브 관련 텍스트 패턴 확인
+    // 유튜브 관련 텍스트 패턴 확인 (문서 요구사항에 따라 확장)
     const youtubeTextPatterns = [
+        // 기존 패턴
         /유튜브\s*링크\s*(.+?)\s*요약/i,
         /유튜브\s*:\s*(.+)/i,
         /youtube\s*:\s*(.+)/i,
         /유튜브\s*(.+?)\s*스크립트/i,
-        /유튜브\s*(.+?)\s*정리/i
+        /유튜브\s*(.+?)\s*정리/i,
+        // 새로운 패턴 (문서 요구사항)
+        /(.+?)\s*요약해줘/i,           // {유튜브url} 요약해줘
+        /(.+?)\s*요약해주세요/i,       // {유튜브url} 요약해주세요
+        /(.+?)\s*요약/i,              // {유튜브url} 요약
+        /유튜브\s*(.+)/i              // 유튜브 {유튜브url}
     ];
     
     for (const pattern of youtubeTextPatterns) {
@@ -645,7 +651,7 @@ function checkExplicitIntent(userInput) {
                     extractedInfo: {
                         youtubeUrl: urlMatch[0],
                         videoId: urlMatch[1],
-                        action: 'transcribe'
+                        action: 'summary'
                     }
                 };
             }
@@ -758,7 +764,7 @@ async function classifyUserInput(message, client, actualContent = null) {
             extractedInfo: {
                 youtubeUrl: youtubeMatch[0],
                 videoId: youtubeMatch[1],
-                action: 'transcribe'
+                action: 'summary'
             }
         };
     }
@@ -835,7 +841,7 @@ ${formattedConversations}
     "DRIVE": "User is asking to search, read, or summarize documents in Google Drive. This can also be a combined request to find a document AND search for a keyword inside it. Keywords: '드라이브', '독스', '시트', '문서', '파일', '자료'. MUST extract 'searchKeyword'. If the user wants to search for a keyword inside the document, ALSO extract 'inDocumentKeyword'.",
     "MEMORY": "User is asking the bot to remember or recall something. (e.g., '이거 기억해', '아까 뭐라고 했지?').",
     "TASK": "User is asking to manage a TO-DO LIST item. These are tasks to be completed, NOT time-bound events. MUST extract 'taskType' ('query', 'add', 'complete') and 'content' (for 'add' and 'complete'). Examples: '보고서 작성 할일 추가', '회의 준비 할일 완료', '할일 목록 보여줘'. DO NOT extract 'period' for tasks.",
-    "YOUTUBE": "User is asking to transcribe, summarize, or analyze a YouTube video. This includes direct YouTube URLs or requests to process YouTube content. MUST extract 'youtubeUrl' and 'action' (usually 'transcribe'). Examples: 'https://www.youtube.com/watch?v=abc123', '유튜브 링크 https://youtu.be/abc123 요약해주세요', '유튜브:https://www.youtube.com/watch?v=abc123'.",
+    "YOUTUBE": "User is asking to transcribe, summarize, or analyze a YouTube video. This includes direct YouTube URLs or requests to process YouTube content. MUST extract 'youtubeUrl' and 'action' (usually 'summary'). Examples: 'https://www.youtube.com/watch?v=abc123', '유튜브 링크 https://youtu.be/abc123 요약해주세요', '유튜브:https://www.youtube.com/watch?v=abc123', 'https://youtu.be/abc123 요약해줘'.",
     "GENERAL": "A general conversation or a topic that doesn't fit into other categories."
 }
 

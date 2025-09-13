@@ -8,7 +8,7 @@ Discord 기반의 다기능 봇으로 AI 채팅, 이미지 생성, 작업 관리
 - 🎨 이미지 생성 및 분석
 - 📝 작업 관리 (Google Tasks 연동)
 - 📅 일정 관리 (Google Calendar 연동)
-- 🎥 YouTube 동영상 처리
+- 🎥 YouTube 동영상 요약 (자막 추출 + AI 요약 + Google Sheets 저장)
 - 💾 메모리 기능
 - 🔍 Google Drive 검색
 
@@ -27,8 +27,9 @@ cp .env_example .env
 | `DISCORD_TOKEN` | Discord 봇 토큰 | [Discord Developer Portal](https://discord.com/developers/applications) | Discord 봇 로그인 및 인증 |
 | `CLIENT_ID` | Discord 애플리케이션 클라이언트 ID | [Discord Developer Portal](https://discord.com/developers/applications) | 슬래시 커맨드 등록 |
 | `GUILD_ID` | Discord 서버(길드) ID | Discord 서버 설정 | 특정 서버에 커맨드 등록 |
-| `OPENAI_API_KEY` | OpenAI API 키 | [OpenAI Platform](https://platform.openai.com/api-keys) | GPT 모델을 이용한 AI 채팅, 이미지 생성, 음성 처리 |
-| `GEMINI_API_KEY` | Google Gemini API 키 | [Google AI Studio](https://aistudio.google.com/app/apikey) | Gemini 모델을 이용한 이미지 분석, YouTube 처리 |
+| `OPENAI_API_KEY` | OpenAI API 키 | [OpenAI Platform](https://platform.openai.com/api-keys) | GPT 모델을 이용한 AI 채팅, 이미지 생성, 음성 처리, YouTube 요약 |
+| `GEMINI_API_KEY` | Google Gemini API 키 | [Google AI Studio](https://aistudio.google.com/app/apikey) | Gemini 모델을 이용한 이미지 분석, YouTube 처리 (폴백) |
+| `SUPADATA_API_KEY` | SupaData API 키 | [SupaData](https://supadata.ai/) | YouTube 자막 추출 (선택사항, 기본값 제공) |
 
 ### 키 발급 방법
 
@@ -156,6 +157,16 @@ node src/index.js
 
 #### 이미지 생성
 - `이미지#고양이가 공원에서 노는 모습` - 이미지 생성
+
+#### YouTube 동영상 요약
+- `https://www.youtube.com/watch?v=abc123` - YouTube URL만 입력
+- `https://youtu.be/abc123 요약해줘` - URL과 함께 요약 요청
+- `유튜브:https://www.youtube.com/watch?v=abc123` - 유튜브 접두사 사용
+
+**YouTube 요약 기능:**
+- 자동으로 자막을 추출하여 AI가 구조화된 요약 생성
+- 제목, 장르, 핵심 요약, 키워드, 상세 노트 포함
+- Google Sheets에 자동 저장 (title, summary, url, genre, keyword, created_date, read 컬럼)
 
 ## 프로젝트 구조
 
