@@ -16,9 +16,10 @@ const path = require('path');
  * @param {string} youtubeUrl - 유튜브 동영상 URL
  * @param {string} videoId - 유튜브 동영상 ID
  * @param {string} action - 처리 액션 (기본값: 'summary')
+ * @param {Object} processingMessage - Discord 메시지 객체 (선택사항)
  * @returns {Promise<Object>} 요약 결과 객체
  */
-async function processYouTubeVideo(youtubeUrl, videoId, action = 'summary') {
+async function processYouTubeVideo(youtubeUrl, videoId, action = 'summary', processingMessage = null) {
     console.log(`🎥 유튜브 동영상 처리 시작: ${youtubeUrl}`);
     
     try {
@@ -26,10 +27,16 @@ async function processYouTubeVideo(youtubeUrl, videoId, action = 'summary') {
         const videoMetadata = await getYouTubeVideoMetadata(videoId);
         
         // 2. YouTube API를 사용하여 자막 추출
-        const transcript = await getYouTubeTranscript(youtubeUrl, videoId);
+        if (processingMessage) {
+            await processingMessage.edit('📝 **자막 추출 시작**\n\n유튜브 동영상에서 자막을 추출하고 있습니다...');
+        }
+        const transcript = await getYouTubeTranscript(youtubeUrl, videoId, processingMessage);
         
         // 3. 요약 프롬프트를 사용하여 요약 생성
-        const summary = await generateSummary(transcript);
+        if (processingMessage) {
+            await processingMessage.edit('🤖 **AI 요약 시작**\n\n추출된 자막을 분석하여 요약을 생성하고 있습니다...');
+        }
+        const summary = await generateSummary(transcript, processingMessage);
         
         // 4. 정식 타이틀과 AI 생성 제목 구분
         // summary.title은 AI가 생성한 제목 (suggested_title로 사용)
@@ -39,12 +46,21 @@ async function processYouTubeVideo(youtubeUrl, videoId, action = 'summary') {
         await saveToGoogleSheets(summary, youtubeUrl, videoMetadata);
         
         // 6. Obsidian 노트 생성
+        if (processingMessage) {
+            await processingMessage.edit('💾 **데이터 저장 중**\n\nGoogle Sheets와 Obsidian에 요약 결과를 저장하고 있습니다...');
+        }
         await createObsidianNote(summary, youtubeUrl, videoMetadata);
         
         return summary;
         
     } catch (error) {
         console.error('❌ 유튜브 처리 실패:', error);
+        
+        // 자막이 없는 경우 사용자에게 명확한 메시지 전달
+        if (error.message === '자막_없음') {
+            throw new Error('해당 유튜브 동영상에는 자막이 없어서 요약을 진행할 수 없습니다. 자막이 있는 다른 동영상을 시도해주세요.');
+        }
+        
         throw new Error('유튜브 동영상 처리에 실패했습니다.');
     }
 }
@@ -110,9 +126,10 @@ async function getYouTubeVideoMetadata(videoId) {
  * YouTube API를 사용하여 자막을 추출합니다.
  * @param {string} youtubeUrl - 유튜브 동영상 URL
  * @param {string} videoId - 유튜브 동영상 ID
+ * @param {Object} processingMessage - Discord 메시지 객체 (선택사항)
  * @returns {Promise<string>} 추출된 자막 텍스트
  */
-async function getYouTubeTranscript(youtubeUrl, videoId) {
+async function getYouTubeTranscript(youtubeUrl, videoId, processingMessage = null) {
     console.log(`📝 자막 추출 시작: ${videoId}`);
     
     try {
@@ -143,10 +160,16 @@ async function getYouTubeTranscript(youtubeUrl, videoId) {
         if (response.data && response.data.content) {
             console.log('✅ 자막 추출 완료');
             console.log(`📝 자막 길이: ${response.data.content.length}자`);
+            
+            if (processingMessage) {
+                await processingMessage.edit('✅ **자막 추출 완료**\n\n자막을 성공적으로 추출했습니다. (' + Math.floor(response.data.content.length / 1000) + 'K자)');
+            }
+            
             return response.data.content;
         } else {
             console.log('❌ 응답에서 content 필드를 찾을 수 없음');
-            throw new Error('자막 데이터를 찾을 수 없습니다.');
+            console.log('🔍 SupaData API에서 자막을 찾을 수 없습니다. 이 동영상에는 자막이 없을 수 있습니다.');
+            throw new Error('자막_없음');
         }
         
     } catch (error) {
@@ -156,18 +179,31 @@ async function getYouTubeTranscript(youtubeUrl, videoId) {
             console.error('   - HTTP 상태:', error.response.status);
             console.error('   - 응답 데이터:', JSON.stringify(error.response.data, null, 2));
         }
+        
+        // 자막이 없는 경우 직접 에러 발생
+        if (error.message === '자막_없음') {
+            throw new Error('자막_없음');
+        }
+        
         console.log('🔄 Gemini API 폴백 시작');
         // 폴백: Gemini API 사용
-        return await processWithGemini(youtubeUrl);
+        try {
+            return await processWithGemini(youtubeUrl, processingMessage);
+        } catch (geminiError) {
+            console.error('❌ Gemini API 폴백도 실패:', geminiError.message);
+            // Gemini도 실패하면 자막 없음으로 처리
+            throw new Error('자막_없음');
+        }
     }
 }
 
 /**
  * Gemini Flash 2.5를 사용하여 동영상 스크립트를 요약합니다.
  * @param {string} transcript - 동영상 자막 텍스트
+ * @param {Object} processingMessage - Discord 메시지 객체 (선택사항)
  * @returns {Promise<Object>} 구조화된 요약 결과
  */
-async function generateSummary(transcript) {
+async function generateSummary(transcript, processingMessage = null) {
     console.log('📋 Gemini Flash 2.5로 요약 생성 시작');
     
     const summaryPrompt = `**[목표]**
@@ -230,19 +266,19 @@ ${transcript}
 • {핵심 메시지 3}
 
 📝 Detailed Notes:
-#### 🔹 {주제 1}
+#### 📌 {주제 1}
 
 • {상세 내용 1}
 • {상세 내용 2}
 • {상세 내용 3}
 
-#### 🔹 {주제 2}
+#### 📌 {주제 2}
 
 • {상세 내용 1}
 • {상세 내용 2}
 • {상세 내용 3}
 
-#### 🔹 {주제 3}
+#### 📌 {주제 3}
 
 • {상세 내용 1}
 • {상세 내용 2}
@@ -269,6 +305,10 @@ ${transcript}
         console.log('✅ Gemini Flash 2.5 요약 생성 완료');
         console.log(`📄 요약 길이: ${summaryText.length}자`);
         
+        if (processingMessage) {
+            await processingMessage.edit('✅ **AI 요약 완료**\n\n동영상 내용을 성공적으로 요약했습니다!');
+        }
+        
         // 결과를 파싱하여 구조화된 객체로 변환
         const parsedSummary = parseSummaryResult(summaryText);
         
@@ -288,6 +328,10 @@ ${transcript}
             
             const parsedSummary = parseSummaryResult(result);
             console.log('✅ GPT 폴백 요약 생성 완료');
+            
+            if (processingMessage) {
+                await processingMessage.edit('✅ **AI 요약 완료**\n\n동영상 내용을 성공적으로 요약했습니다! (GPT 폴백)');
+            }
             
             return parsedSummary;
             
@@ -345,12 +389,12 @@ function parseSummaryResult(summaryText) {
  * 플랫폼별 상세 노트 포맷터
  */
 const DetailedNotesFormatter = {
-    // Obsidian용: 원본 그대로 (#### 🔹 유지)
+    // Obsidian용: 원본 그대로 (#### 📌 유지)
     forObsidian: (detailedNotes) => {
         return detailedNotes || '상세 내용이 없습니다.';
     },
     
-    // Discord용: #### 를 🔹 **로 변환 (불필요한 제목 제거)
+    // Discord용: #### 를 📌 **로 변환 (불필요한 제목 제거)
     forDiscord: (detailedNotes) => {
         if (!detailedNotes) return '상세 내용이 없습니다.';
         
@@ -359,9 +403,9 @@ const DetailedNotesFormatter = {
             .replace(/📝\s*(상세\s*노트|Detailed\s*Notes):\s*\n?/gi, '')
             .replace(/📚\s*상세\s*노트\s*\n?/gi, '')
             .replace(/##\s*📚\s*상세\s*노트\s*\n?/gi, '')
-            // #### 를 🔹 **로 변환
-            .replace(/#### 🔹([^\n]+)/g, '🔹 **$1**')
-            .replace(/#### ([^\n]+)/g, '🔹 **$1**')
+            // #### 를 📌 **로 변환
+            .replace(/#### 📌([^\n]+)/g, '📌 **$1**')
+            .replace(/#### ([^\n]+)/g, '📌 **$1**')
             // 연속된 빈 줄 정리
             .replace(/\n\s*\n\s*\n/g, '\n\n')
             .trim();
@@ -377,7 +421,7 @@ const DetailedNotesFormatter = {
             .replace(/📚\s*상세\s*노트\s*\n?/gi, '')
             .replace(/##\s*📚\s*상세\s*노트\s*\n?/gi, '')
             // 포맷 변환
-            .replace(/#### 🔹/g, '■')
+            .replace(/#### 📌/g, '■')
             .replace(/#### /g, '■ ')
             .replace(/•/g, '-')
             // 연속된 빈 줄 정리
@@ -556,9 +600,10 @@ ${DetailedNotesFormatter.forObsidian(summary.detailedNotes)}
 /**
  * Gemini API를 사용하여 유튜브 동영상을 처리합니다. (폴백 함수)
  * @param {string} youtubeUrl - 유튜브 동영상 URL
+ * @param {Object} processingMessage - Discord 메시지 객체 (선택사항)
  * @returns {Promise<string>} 처리 결과
  */
-async function processWithGemini(youtubeUrl) {
+async function processWithGemini(youtubeUrl, processingMessage = null) {
     console.log(`🤖 Gemini API로 유튜브 처리: ${youtubeUrl}`);
     
     // 환경변수에서 Gemini API 키 확인
@@ -631,8 +676,8 @@ async function processWithGemini(youtubeUrl) {
     } catch (error) {
         console.error('❌ Gemini API 호출 실패:', error);
         
-        // 폴백: GPT를 사용한 일반적인 응답
-        return await fallbackWithGPT(youtubeUrl);
+        // Gemini도 자막을 처리할 수 없으면 자막 없음 에러 발생
+        throw new Error('자막_없음');
     }
 }
 
@@ -725,7 +770,7 @@ async function handleYouTubeRequest(message, classification) {
     const processingMessage = await message.reply('🔄 유튜브 동영상을 분석하고 요약하고 있습니다... 잠시만 기다려주세요.');
     
     try {
-        const summary = await processYouTubeVideo(youtubeUrl, videoId, action);
+        const summary = await processYouTubeVideo(youtubeUrl, videoId, action, processingMessage);
         
         // 요약 결과를 Discord 메시지 형식으로 포맷팅
         const formattedResult = formatSummaryForDiscord(summary);
@@ -752,8 +797,16 @@ async function handleYouTubeRequest(message, classification) {
         
     } catch (error) {
         console.error('❌ 유튜브 처리 오류:', error);
+        
+        let errorMessage;
+        if (error.message.includes('자막이 없어서 진행을 못한다')) {
+            errorMessage = `❌ **자막 없음**\n\n해당 유튜브 동영상에는 자막이 없어서 요약을 진행할 수 없습니다.\n\n📋 **해결 방법:**\n• 자막이 있는 다른 동영상을 시도해주세요\n• 한국어 또는 영어 자막이 있는 동영상을 선택해주세요\n• 자동 생성 자막이라도 있으면 처리 가능합니다`;
+        } else {
+            errorMessage = `❌ **처리 실패**\n\n유튜브 동영상 처리 중 오류가 발생했습니다.\n\n🔄 **다시 시도해주세요:**\n• 잠시 후 다시 시도해보세요\n• URL이 올바른지 확인해주세요\n• 동영상이 공개 상태인지 확인해주세요`;
+        }
+        
         await processingMessage.edit({
-            content: '❌ 유튜브 동영상 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+            content: errorMessage
         });
     }
 }
